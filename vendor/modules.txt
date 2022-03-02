@@ -18,14 +18,27 @@ github.com/go-playground/universal-translator
 # github.com/go-playground/validator/v10 v10.4.1
 ## explicit; go 1.13
 github.com/go-playground/validator/v10
+# github.com/go-sql-driver/mysql v1.6.0
+## explicit; go 1.10
+github.com/go-sql-driver/mysql
 # github.com/golang/protobuf v1.5.2
 ## explicit; go 1.9
 github.com/golang/protobuf/proto
+# github.com/google/go-github/v35 v35.2.0
+## explicit; go 1.16
+# github.com/google/go-github/v39 v39.2.0
+## explicit; go 1.16
+# github.com/google/go-querystring v1.1.0
+## explicit; go 1.10
+# github.com/hashicorp/errwrap v1.1.0
+## explicit
+# github.com/hashicorp/go-multierror v1.1.1
+## explicit; go 1.13
 # github.com/heroku/x v0.0.33
 ## explicit; go 1.12
 github.com/heroku/x/hmetrics
 github.com/heroku/x/hmetrics/onload
-# github.com/json-iterator/go v1.1.9
+# github.com/json-iterator/go v1.1.10
 ## explicit; go 1.12
 github.com/json-iterator/go
 # github.com/leodido/go-urn v1.2.0
@@ -34,23 +47,44 @@ github.com/leodido/go-urn
 # github.com/mattn/go-isatty v0.0.12
 ## explicit; go 1.12
 github.com/mattn/go-isatty
-# github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421
+# github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
 ## explicit
 github.com/modern-go/concurrent
-# github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742
+# github.com/modern-go/reflect2 v1.0.1
 ## explicit
 github.com/modern-go/reflect2
 # github.com/ugorji/go/codec v1.1.7
 ## explicit
 github.com/ugorji/go/codec
-# golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
-## explicit; go 1.11
+# github.com/upper/db/v4 v4.5.0
+## explicit; go 1.15
+github.com/upper/db/v4
+github.com/upper/db/v4/adapter/mysql
+github.com/upper/db/v4/internal/adapter
+github.com/upper/db/v4/internal/cache
+github.com/upper/db/v4/internal/cache/hashstructure
+github.com/upper/db/v4/internal/immutable
+github.com/upper/db/v4/internal/reflectx
+github.com/upper/db/v4/internal/sqladapter
+github.com/upper/db/v4/internal/sqladapter/compat
+github.com/upper/db/v4/internal/sqladapter/exql
+github.com/upper/db/v4/internal/sqlbuilder
+# go.uber.org/atomic v1.9.0
+## explicit; go 1.13
+# golang.org/x/crypto v0.0.0-20211209193657-4570a0811e8b
+## explicit; go 1.17
 golang.org/x/crypto/sha3
-# golang.org/x/sys v0.0.0-20210423185535-09eb48e85fd7
-## explicit; go 1.12
+# golang.org/x/net v0.0.0-20220111093109-d55c255bac03
+## explicit; go 1.17
+# golang.org/x/oauth2 v0.0.0-20211104180415-d3ed0bb246c8
+## explicit; go 1.11
+# golang.org/x/sys v0.0.0-20220111092808-5a964db01320
+## explicit; go 1.17
 golang.org/x/sys/cpu
 golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
+# google.golang.org/appengine v1.6.7
+## explicit; go 1.11
 # google.golang.org/protobuf v1.27.1
 ## explicit; go 1.9
 google.golang.org/protobuf/encoding/prototext
@@ -80,6 +114,6 @@ google.golang.org/protobuf/reflect/protoregistry
 google.golang.org/protobuf/runtime/protoiface
 google.golang.org/protobuf/runtime/protoimpl
 google.golang.org/protobuf/types/descriptorpb
-# gopkg.in/yaml.v2 v2.2.8
-## explicit
+# gopkg.in/yaml.v2 v2.4.0
+## explicit; go 1.15
 gopkg.in/yaml.v2
