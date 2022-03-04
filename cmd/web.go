@@ -1,13 +1,14 @@
 package main
 
 import (
+	"context"
 	"github.com/heroku/go-getting-started/db"
 	"github.com/heroku/go-getting-started/routes"
 	"log"
 	"os"
 
+	firebase "firebase.google.com/go/v4"
 	"github.com/gin-gonic/gin"
-	_ "github.com/heroku/x/hmetrics/onload"
 )
 
 func main() {
@@ -17,6 +18,12 @@ func main() {
 	}
 	defer db.Close()
 
+	_, err = firebase.NewApp(context.Background(), nil)
+	if err != nil {
+		log.Fatalf("error initializing firebase: %v\n", err)
+	}
+
+	// TODO: Move the port parsing to a configuration module
 	port := os.Getenv("PORT")
 	if port == "" {
 		log.Fatal("$PORT must be set")

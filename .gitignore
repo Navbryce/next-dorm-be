@@ -74,5 +74,6 @@ fabric.properties
 
 # env
 .env
+firebase-credentials.json
 .docker_build/
 bin/

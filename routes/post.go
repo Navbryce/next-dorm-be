@@ -16,6 +16,7 @@ type postRoutes struct {
 func AddPostRoutes(group *gin.RouterGroup, db db.Database) {
 	routes := postRoutes{db}
 	posts := group.Group("/posts")
+	posts.GET("", routes.getPosts)
 	posts.GET("/:id", routes.getPostById)
 	posts.PUT("", routes.createPost)
 }
@@ -39,10 +40,10 @@ func (pr *postRoutes) createPost(c *gin.Context) {
 	createPost := db.CreatePost(req)
 	id, err := pr.db.CreatePost(c, &createPost)
 	if err != nil {
-		log.Println("A database error occurred", err)
+		log.Println("database error occurred", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "DB error",
+			"message": "database error",
 		})
 		return
 	}
@@ -68,20 +69,41 @@ func (pr *postRoutes) getPostById(c *gin.Context) {
 		log.Println("database error occurred", err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
-			"message": "Database error",
+			"message": "database error",
 		})
 		return
 	}
 	if post == nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
-			"message": "Post not found",
+			"message": "post not found",
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    makePostDisplayable(post),
+	})
+}
+
+func (pr *postRoutes) getPosts(c *gin.Context) {
+	posts, err := pr.db.GetPosts(c, nil, "", []int64{2}, 5)
+	if err != nil {
+		log.Println("database error occurred", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "database error",
+		})
+		return
+	}
+	displayablePosts := make([]*types.Post, len(posts))
+	for i, post := range posts {
+		displayablePosts[i] = makePostDisplayable(post)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    displayablePosts,
 	})
 }
 
