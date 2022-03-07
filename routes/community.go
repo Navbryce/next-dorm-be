@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/heroku/go-getting-started/db"
 	"log"
@@ -11,9 +12,9 @@ type communityRoutes struct {
 	db db.Database
 }
 
-func AddCommunityRoutes(group *gin.RouterGroup, db db.Database) {
+func AddCommunityRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
 	routes := communityRoutes{db}
-	posts := group.Group("/communities")
+	posts := group.Group("/communities", Auth(db, authClient, &AuthConfig{}))
 	posts.PUT("", routes.createCommunity)
 }
 

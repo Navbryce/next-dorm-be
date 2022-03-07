@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS community, post, post_communities;
+DROP TABLE IF EXISTS community, post, post_communities, person;

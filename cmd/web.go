@@ -18,9 +18,13 @@ func main() {
 	}
 	defer db.Close()
 
-	_, err = firebase.NewApp(context.Background(), nil)
+	app, err := firebase.NewApp(context.Background(), nil)
 	if err != nil {
 		log.Fatalf("error initializing firebase: %v\n", err)
+	}
+	authClient, err := app.Auth(context.Background())
+	if err != nil {
+		log.Fatal("error initializing auth client", err)
 	}
 
 	// TODO: Move the port parsing to a configuration module
@@ -33,8 +37,9 @@ func main() {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 
-	routes.AddCommunityRoutes(&r.RouterGroup, db)
-	routes.AddPostRoutes(&r.RouterGroup, db)
+	routes.AddCommunityRoutes(&r.RouterGroup, db, authClient)
+	routes.AddPostRoutes(&r.RouterGroup, db, authClient)
+	routes.AddUserRoutes(&r.RouterGroup, db, authClient)
 
 	if err := r.Run(); err != nil {
 		log.Fatal("Error when attempting to run web server", err)

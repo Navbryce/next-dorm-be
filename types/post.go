@@ -16,12 +16,10 @@ const (
 
 type Post struct {
 	Id          int64
+	Creator     *DisplayableUser
 	Content     string
 	Communities []*Community
 	Visibility  Visibility
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
-}
-
-type User struct {
 }

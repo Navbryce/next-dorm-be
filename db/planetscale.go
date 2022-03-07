@@ -57,13 +57,13 @@ func (psdb *PlanetScaleDB) CreateCommunity(ctx context.Context, name string) (in
 	return res.LastInsertId()
 }
 
-func (psdb *PlanetScaleDB) CreatePost(ctx context.Context, post *CreatePost) (int64, error) {
+func (psdb *PlanetScaleDB) CreatePost(ctx context.Context, creatorId string, post *CreatePost) (int64, error) {
 	var postId int64
 	err := psdb.sess.TxContext(ctx, func(sess db.Session) error {
 		res, err := sess.SQL().
 			InsertInto("post").
-			Columns("content", "visibility").
-			Values(post.Content, post.Visibility).
+			Columns("creator_id", "content", "visibility").
+			Values(creatorId, post.Content, post.Visibility).
 			ExecContext(ctx)
 		if err != nil {
 			return err
@@ -89,6 +89,8 @@ func (psdb *PlanetScaleDB) CreatePost(ctx context.Context, post *CreatePost) (in
 type flattenedPost struct {
 	Id                    int64            `db:"id"`
 	Content               string           `db:"content"`
+	CreatorId             string           `db:"creator_id"`
+	CreatorDisplayName    string           `db:"display_name"`
 	CommunityIdsStr       string           `db:"community_ids"`
 	CommunityNamesJSONStr string           `db:"community_names"`
 	Visibility            types.Visibility `db:"visibility"`
@@ -115,21 +117,22 @@ func (psdb *PlanetScaleDB) GetPostById(ctx context.Context, id int64) (*types.Po
 func (psdb *PlanetScaleDB) GetPosts(ctx context.Context, from *time.Time, cursor string, communityIds []int64, limit int16) ([]*types.Post, error) {
 	var flattenedPosts []flattenedPost
 	if err := psdb.sess.SQL().
-		Select("p.id", "p.content", "p.visibility", "p.created_at", "p.updated_at", db.Raw("JSON_ARRAYAGG(pc.community_id) as community_ids"), db.Raw("JSON_ARRAYAGG(c.name) as community_names")).
+		Select("p.id", "p.creator_id", "person.display_name", "p.content", "p.visibility", "p.created_at", "p.updated_at", db.Raw("JSON_ARRAYAGG(pc.community_id) as community_ids"), db.Raw("JSON_ARRAYAGG(c.name) as community_names")).
 		From(
 			psdb.sess.SQL().
 				Select("p.id").
 				From("post as p").
 				LeftJoin("post_communities as pc").On("p.id=pc.post_id").
 				Where("(ISNULL(?) OR (p.created_at < ? OR p.created_at = ? AND p.id < ?))", from, from, from, cursor).
-				And("pc.community_id = ?", communityIds).
+				And("pc.community_id IN ?", communityIds).
 				GroupBy("p.id")).
 		As("p_ids").
 		Join("post as p").On("p_ids.id = p.id").
 		LeftJoin("post_communities as pc").On("p.id = pc.post_id").
 		Join("community as c").On("pc.community_id = c.id").
+		Join("person").On("p.creator_id = person.firebase_id").
 		OrderBy("p.created_at DESC", "p.id DESC").
-		GroupBy("p.id").
+		GroupBy("p.id", "person.firebase_id").
 		Limit(int(limit)).
 		IteratorContext(ctx).
 		All(&flattenedPosts); err != nil {
@@ -166,7 +169,11 @@ func buildPostFromFlattened(post *flattenedPost) (*types.Post, error) {
 	}
 
 	return &types.Post{
-		Id:          post.Id,
+		Id: post.Id,
+		Creator: &types.DisplayableUser{
+			Id:          post.CreatorId,
+			DisplayName: post.CreatorDisplayName,
+		},
 		Content:     post.Content,
 		Communities: communities,
 		Visibility:  post.Visibility,
@@ -182,4 +189,24 @@ func (psdb *PlanetScaleDB) GetCommunities(ctx context.Context) ([]*types.Communi
 		From("community").
 		IteratorContext(ctx).
 		All(communities)
+}
+
+func (psdb *PlanetScaleDB) CreateUser(ctx context.Context, user *types.User) error {
+	_, err := psdb.sess.Collection("person").
+		Insert(user)
+	return err
+}
+
+func (psdb *PlanetScaleDB) GetUser(ctx context.Context, id string) (*types.User, error) {
+	var user types.User
+	if err := psdb.sess.SQL().
+		Select("*").
+		From("person").
+		Where("firebase_id = ?", id).
+		IteratorContext(ctx).
+		One(&user); err != nil {
+		return nil, err
+	}
+	return &user, nil
+
 }

@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS community (
 
 CREATE TABLE IF NOT EXISTS post (
     id INT NOT NULL AUTO_INCREMENT,
+    creator_id VARCHAR(36) NOT NULL,
     content TEXT NOT NULL,
     visibility ENUM('NORMAL', 'HIDDEN') NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -18,4 +19,10 @@ CREATE TABLE IF NOT EXISTS post_communities (
     post_id INT NOT NULL,
     community_id MEDIUMINT NOT NULL,
     PRIMARY KEY(post_id, community_id)
+);
+
+CREATE TABLE IF NOT EXISTS person (
+    firebase_id VARCHAR(36) NOT NULL,
+    display_name VARCHAR(300) NOT NULL,
+    PRIMARY KEY(firebase_id)
 );
