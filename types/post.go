@@ -10,14 +10,16 @@ type Community struct {
 type Visibility string
 
 const (
-	NORMAL Visibility = "NORMAL"
-	HIDDEN            = "HIDDEN"
+	VisibilityNormal Visibility = "NORMAL"
+	VisibilityHidden            = "HIDDEN"
 )
 
 type Post struct {
 	Id          int64
 	Creator     *DisplayableUser
 	Content     string
+	NumVotes    int
+	VoteTotal   int
 	Communities []*Community
 	Visibility  Visibility
 	CreatedAt   time.Time

@@ -25,6 +25,8 @@ type createUserReq struct {
 	DisplayName string
 }
 
+// TODO User joins communities?
+
 func (ur userRoutes) CreateUser(c *gin.Context) {
 	var req createUserReq
 	if err := c.BindJSON(&req); err != nil {

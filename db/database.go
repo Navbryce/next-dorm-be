@@ -24,10 +24,11 @@ type CreatePost struct {
 
 type PostDatabase interface {
 	CreateCommunity(ctx context.Context, name string) (communityId int64, err error)
+	GetCommunities(ctx context.Context, ids []int64) ([]*types.Community, error)
 	CreatePost(context.Context, string, *CreatePost) (postId int64, err error)
 	GetPostById(ctx context.Context, id int64) (*types.Post, error)
 	GetPosts(ctx context.Context, from *time.Time, cursor string, communityIds []int64, limit int16) ([]*types.Post, error)
-	GetCommunities(context.Context) ([]*types.Community, error)
+	Vote(ctx context.Context, userId string, postId int64, value int8) error
 }
 
 type UserDatabase interface {
