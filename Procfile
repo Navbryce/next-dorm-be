@@ -1,1 +1,1 @@
-web: bin/web.go
+web: bin/cmd/web
