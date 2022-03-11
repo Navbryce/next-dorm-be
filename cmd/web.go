@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"github.com/heroku/go-getting-started/db"
-	"github.com/heroku/go-getting-started/routes"
+	"github.com/navbryce/next-dorm-be/db"
+	"github.com/navbryce/next-dorm-be/routes"
 	"log"
 	"os"
 
