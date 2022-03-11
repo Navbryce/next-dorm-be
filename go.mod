@@ -1,4 +1,4 @@
-module github.com/heroku/go-getting-started
+module github.com/navbryce/next-dorm-be
 
 // +heroku goVersion go1.17
 go 1.17
