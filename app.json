@@ -1,12 +1,8 @@
 {
-  "name": "Start on Heroku: Go",
-  "description": "Go Getting Started Example App",
+  "name": "next-dorm-be",
+  "description": "NextDorm Backend",
   "keywords": [
-    "getting-started",
-    "go",
-    "sample",
-    "example"
   ],
-  "website": "http://github.com/heroku/go-getting-started",
-  "repository": "http://github.com/heroku/go-getting-started"
+  "website": "http://github.com/navbryce/next-dorm-be",
+  "repository": "http://github.com/navbryce/next-dorm-be"
 }

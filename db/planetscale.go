@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/heroku/go-getting-started/types"
+	"github.com/navbryce/next-dorm-be/types"
 	"github.com/upper/db/v4"
 	"github.com/upper/db/v4/adapter/mysql"
 	"os"

@@ -3,7 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
-	"github.com/heroku/go-getting-started/types"
+	"github.com/navbryce/next-dorm-be/types"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"

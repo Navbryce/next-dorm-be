@@ -3,7 +3,7 @@ package routes
 import (
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
-	"github.com/heroku/go-getting-started/db"
+	"github.com/navbryce/next-dorm-be/db"
 	"net/http"
 	"strings"
 )
