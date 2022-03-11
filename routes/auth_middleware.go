@@ -66,11 +66,12 @@ func Auth(userDB db.UserDatabase, authClient *auth.Client, config *AuthConfig) g
 			if config.profileNotRequired {
 				return
 			}
-			c.Abort()
 			c.JSON(http.StatusForbidden, gin.H{
 				"success": false,
 				"message": "must have a user profile",
 			})
+			c.Abort()
+			return
 		}
 		c.Set(USER_PROFILE_KEY, user)
 	}
