@@ -33,6 +33,7 @@ func main() {
 		log.Fatal("$PORT must be set")
 	}
 
+	gin.SetMode(os.Getenv("GIN_MODE"))
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
