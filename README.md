@@ -11,3 +11,4 @@ TBD
 # TODO
 - Input validation
 - Standardize config validation
+- Better error handling (prevent crashes)
