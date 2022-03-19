@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS content_metadata, community, post, post_communities, person, report, vote;
+DROP TABLE IF EXISTS comment, content_metadata, community, post, post_communities, person, report, subscription, vote;

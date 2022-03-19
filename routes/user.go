@@ -4,7 +4,8 @@ import (
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/navbryce/next-dorm-be/db"
-	"github.com/navbryce/next-dorm-be/types"
+	"github.com/navbryce/next-dorm-be/middleware"
+	"github.com/navbryce/next-dorm-be/model"
 	"log"
 	"net/http"
 )
@@ -15,8 +16,8 @@ type userRoutes struct {
 
 func AddUserRoutes(group *gin.RouterGroup, userDatabase db.UserDatabase, authClient *auth.Client) {
 	routes := userRoutes{userDatabase}
-	users := group.Group("/users", Auth(userDatabase, authClient, &AuthConfig{
-		profileNotRequired: true,
+	users := group.Group("/users", middleware.Auth(userDatabase, authClient, &middleware.AuthConfig{
+		appAccountNotRequired: true,
 	}))
 	users.PUT("", routes.CreateUser)
 }
@@ -35,8 +36,8 @@ func (ur userRoutes) CreateUser(c *gin.Context) {
 			"message": err,
 		})
 	}
-	if err := ur.db.CreateUser(c, &types.User{
-		Id:          getUserToken(c).UID,
+	if err := ur.db.CreateUser(c, &model.User{
+		Id:          middleware.GetToken(c).UID,
 		DisplayName: req.DisplayName,
 	}); err != nil {
 		log.Println("database error occurred", err)

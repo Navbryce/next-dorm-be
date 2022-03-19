@@ -3,7 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
-	"github.com/navbryce/next-dorm-be/types"
+	"github.com/navbryce/next-dorm-be/model"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -18,7 +18,7 @@ type Database interface {
 
 type CreateContentMetadata struct {
 	CreatorId    string
-	Visibility   types.Visibility
+	Visibility   model.Visibility
 	CreatorAlias string // only required if visibility is None
 }
 
@@ -31,6 +31,7 @@ type CreatePost struct {
 
 type CreateComment struct {
 	*CreateContentMetadata
+	RootMetadataId   int64
 	ParentMetadataId int64
 	Content          string
 }
@@ -40,19 +41,42 @@ type CreateReport struct {
 	Reason string
 }
 
+type PostQueryOpts struct {
+	VoteHistoryOf string
+}
+
+type PostsListQuery struct {
+	From         *time.Time
+	Cursor       string
+	CommunityIds []int64
+	*PostsListQueryOpts
+}
+
+type PostsListQueryOpts struct {
+	Limit         int16
+	VoteHistoryOf string
+}
+
+type CommentTreeQueryOpts struct {
+	VoteHistoryOf string
+}
+
 type PostDatabase interface {
 	CreateCommunity(ctx context.Context, name string) (communityId int64, err error)
-	GetCommunities(ctx context.Context, ids []int64) ([]*types.Community, error)
+	GetCommunities(ctx context.Context, ids []int64) ([]*model.Community, error)
 	CreatePost(ctx context.Context, req *CreatePost) (postId int64, err error)
 	CreateComment(ctx context.Context, req *CreateComment) (commentId int64, err error)
-	GetPostById(ctx context.Context, id int64) (*types.Post, error)
-	GetPosts(ctx context.Context, from *time.Time, cursor string, communityIds []int64, limit int16) ([]*types.Post, error)
-	//GetComments(ctx context.Context, from *time.Time, cursor string, limit int16) ([]*types.Post, error)
+	MarkPostAsDeleted(context.Context, int64) error
+	//MarkCommentAsDeleted(context.Context, int64) error
+	GetPostById(context.Context, int64, *PostQueryOpts) (*model.Post, error)
+	GetPosts(context.Context, *PostsListQuery) ([]*model.Post, error)
+	GetCommentById(ctx context.Context, id int64) (*model.Comment, error)
+	GetCommentForest(ctx context.Context, rootMetadataId int64, opts *CommentTreeQueryOpts) ([]*model.CommentTree, error)
 	Vote(ctx context.Context, userId string, contentMetadataId int64, value int8) error
 	CreateReport(ctx context.Context, userId string, req *CreateReport) (reportId int64, err error)
 }
 
 type UserDatabase interface {
-	CreateUser(context.Context, *types.User) error
-	GetUser(context.Context, string) (*types.User, error)
+	CreateUser(context.Context, *model.User) error
+	GetUser(context.Context, string) (*model.User, error)
 }

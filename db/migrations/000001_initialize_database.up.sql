@@ -13,18 +13,27 @@ CREATE TABLE IF NOT EXISTS community
     PRIMARY KEY (id)
 );
 
+CREATE TABLE IF NOT EXISTS subscription
+(
+    user_id VARCHAR(36) NOT NULL,
+    community_id MEDIUMINT NOT NULL,
+    PRIMARY KEY(user_id, community_id)
+);
+
 CREATE TABLE IF NOT EXISTS content_metadata
 (
-    id            INT                       NOT NULL AUTO_INCREMENT,
-    creator_id    VARCHAR(36)               NOT NULL,
-    creator_alias VARCHAR(300)              NOT NULL,
-    visibility    ENUM ('NORMAL', 'HIDDEN') NOT NULL,
-    vote_total    INT                                DEFAULT 0,
-    num_votes     INT                                DEFAULT 0,
-    created_at    DATETIME                  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME                  NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id            INT                        NOT NULL AUTO_INCREMENT,
+    creator_id    VARCHAR(36)                NOT NULL,
+    creator_alias VARCHAR(300)               NOT NULL,
+    visibility    ENUM ('NORMAL', 'HIDDEN')  NOT NULL,
+    status        ENUM ('POSTED', 'DELETED') NOT NULL DEFAULT 'POSTED',
+    vote_total    INT                                 DEFAULT 0,
+    num_votes     INT                                 DEFAULT 0,
+    created_at    DATETIME                   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME                   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    INDEX IDX_BY_CREATED_AT (created_at DESC, id DESC)
+    INDEX IDX_BY_CREATED_AT (created_at DESC, id DESC),
+    INDeX IDX_CREATOR (creator_id)
 );
 
 CREATE TABLE IF NOT EXISTS post
@@ -56,6 +65,7 @@ CREATE TABLE IF NOT EXISTS vote
 CREATE TABLE IF NOT EXISTS comment
 (
     id                 INT  NOT NULL AUTO_INCREMENT,
+    root_metadata_id   INT  NOT NULL,
     parent_metadata_id INT  NOT NULL,
     metadata_id        INT  NOT NULL,
     content            TEXT NOT NULL,

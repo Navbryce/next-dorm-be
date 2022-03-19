@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/navbryce/next-dorm-be/types"
+	"github.com/navbryce/next-dorm-be/model"
 	"github.com/upper/db/v4"
 	"github.com/upper/db/v4/adapter/mysql"
 	"os"
@@ -90,6 +90,16 @@ func (psdb *PlanetScaleDB) CreatePost(ctx context.Context, post *CreatePost) (in
 	return postId, err
 }
 
+func (psdb *PlanetScaleDB) MarkPostAsDeleted(ctx context.Context, id int64) error {
+	_, err := psdb.sess.SQL().ExecContext(ctx, db.Raw(`
+UPDATE post as p
+	INNER JOIN content_metadata as cm ON p.metadata_id = cm.id
+	WHERE p.id = ?
+	SET cm.status = 'DELETED', p.content=''
+`, id))
+	return err
+}
+
 func (psdb *PlanetScaleDB) CreateComment(ctx context.Context, req *CreateComment) (int64, error) {
 	var commentId int64
 	err := psdb.sess.TxContext(ctx, func(sess db.Session) error {
@@ -100,8 +110,8 @@ func (psdb *PlanetScaleDB) CreateComment(ctx context.Context, req *CreateComment
 
 		res, err := sess.SQL().
 			InsertInto("comment").
-			Values(metadataId, req.ParentMetadataId, req.Content).
-			Columns("metadata_id", "parent_metadata_id", "content").
+			Values(metadataId, req.RootMetadataId, req.ParentMetadataId, req.Content).
+			Columns("metadata_id", "root_metadata_id", "parent_metadata_id", "content").
 			ExecContext(ctx)
 		if err != nil {
 			return err
@@ -124,28 +134,34 @@ func insertContentMetadata(ctx context.Context, sess db.Session, metadata *Creat
 	return res.LastInsertId()
 }
 
-type flattenedMetadata struct {
-	Id                 int64            `db:"id"`
+type flattenedUserVote struct {
+	Value sql.NullInt16 `db:"value"`
+}
+
+type flattenedContentMetadata struct {
+	Id                 int64            `db:"metadata_id"`
 	NumVotes           int              `db:"num_votes"`
 	VoteTotal          int              `db:"vote_total"`
 	CreatorId          string           `db:"creator_id"`
 	CreatorDisplayName string           `db:"display_name"`
 	CreatorAlias       string           `db:"creator_alias"`
-	Visibility         types.Visibility `db:"visibility"`
-	CreatedAt          time.Time        `db:"created_at"`
-	UpdatedAt          time.Time        `db:"updated_at"`
+	Visibility         model.Visibility `db:"visibility"`
+	flattenedUserVote  `db:",inline"`
+	CreatedAt          time.Time `db:"created_at"`
+	UpdatedAt          time.Time `db:"updated_at"`
 }
 
 type flattenedPost struct {
-	flattenedMetadata     `db:",inline"`
-	Id                    int64  `db:"id"`
-	Title                 string `db:"title"`
-	Content               string `db:"content"`
-	CommunityIdsStr       string `db:"community_ids"`
-	CommunityNamesJSONStr string `db:"community_names"`
+	flattenedContentMetadata `db:",inline"`
+	Id                       int64  `db:"id"`
+	Title                    string `db:"title"`
+	Content                  string `db:"content"`
+	CommunityIdsStr          string `db:"community_ids"`
+	CommunityNamesJSONStr    string `db:"community_names"`
 }
 
 var contentMetadataColumns = []interface{}{
+	"cm.id as metadata_id",
 	"cm.creator_id",
 	"person.display_name",
 	"cm.creator_alias",
@@ -156,20 +172,27 @@ var contentMetadataColumns = []interface{}{
 	"cm.updated_at",
 }
 
-var postColumns = append([]interface{}{
-	"p.id",
-	"p.title",
-	"p.content",
-	db.Raw("JSON_ARRAYAGG(pc.community_id) as community_ids"), db.Raw("JSON_ARRAYAGG(c.name) as community_names"),
-}, contentMetadataColumns...)
+var postColumns = append(contentMetadataColumns,
+	[]interface{}{
+		"p.id",
+		"p.title",
+		"p.content",
+		db.Raw("JSON_ARRAYAGG(pc.community_id) as community_ids"), db.Raw("JSON_ARRAYAGG(c.name) as community_names"),
+	}...)
 
-func (psdb *PlanetScaleDB) GetPostById(ctx context.Context, id int64) (*types.Post, error) {
+var voteColumns = []interface{}{
+	"v.value",
+}
+
+func (psdb *PlanetScaleDB) GetPostById(ctx context.Context, id int64, opts *PostQueryOpts) (*model.Post, error) {
 	var post flattenedPost
 	if err := psdb.sess.SQL().
-		Select(postColumns...).
+		Select(append(postColumns, voteColumns...)...).
 		From("post AS p").
 		Join("content_metadata as cm").On("p.metadata_id = cm.id").
 		LeftJoin("post_communities as pc").On("p.id = pc.post_id").
+		// TODO: This can be optimized: don't join if VoteHistoryOf empty
+		LeftJoin("vote as v").On("v.voter_id = ? AND cm.id = v.tgt_metadata_id", opts.VoteHistoryOf).
 		Join("person").On("cm.creator_id = person.firebase_id").
 		Join("community as c").On("pc.community_id = c.id").
 		Where("p.id = ?", id).
@@ -184,33 +207,35 @@ func (psdb *PlanetScaleDB) GetPostById(ctx context.Context, id int64) (*types.Po
 	return buildPostFromFlattened(&post)
 }
 
-func (psdb *PlanetScaleDB) GetPosts(ctx context.Context, from *time.Time, cursor string, communityIds []int64, limit int16) ([]*types.Post, error) {
+func (psdb *PlanetScaleDB) GetPosts(ctx context.Context, query *PostsListQuery) ([]*model.Post, error) {
 	var flattenedPosts []flattenedPost
 	if err := psdb.sess.SQL().
-		Select(postColumns...).
+		Select(append(postColumns, voteColumns...)...).
 		From(
 			psdb.sess.SQL().
 				Select("p.id").
 				From("post as p").
 				Join("content_metadata as cm").On("p.metadata_id=cm.id").
 				LeftJoin("post_communities as pc").On("p.id=pc.post_id").
-				Where("(ISNULL(?) OR (cm.created_at < ? OR cm.created_at = ? AND (? = '' OR p.id < ?)))", from, from, from, cursor, cursor).
-				And("(ISNULL(?) OR pc.community_id IN ?)", communityIds, communityIds).
+				Where("(ISNULL(?) OR (cm.created_at < ? OR cm.created_at = ? AND (? = '' OR p.id < ?)))", query.From, query.From, query.From, query.Cursor, query.Cursor).
+				And("(ISNULL(?) OR pc.community_id IN ?)", query.CommunityIds, query.CommunityIds).
 				GroupBy("p.id")).
 		As("p_ids").
 		Join("post as p").On("p_ids.id = p.id").
 		Join("content_metadata as cm").On("p.metadata_id = cm.id").
+		// TODO: This can be optimized: don't join if VoteHistoryOf empty
+		LeftJoin("vote as v").On("v.voter_id = ? AND cm.id = v.tgt_metadata_id", query.VoteHistoryOf).
 		Join("person").On("cm.creator_id = person.firebase_id").
 		LeftJoin("post_communities as pc").On("p.id = pc.post_id").
 		Join("community as c").On("pc.community_id = c.id").
 		OrderBy("cm.created_at DESC", "cm.id DESC").
 		GroupBy("p.id", "cm.id", "person.firebase_id").
-		Limit(int(limit)).
+		Limit(int(query.Limit)).
 		IteratorContext(ctx).
 		All(&flattenedPosts); err != nil {
 		return nil, err
 	}
-	posts := make([]*types.Post, len(flattenedPosts))
+	posts := make([]*model.Post, len(flattenedPosts))
 	for i, flattened := range flattenedPosts {
 		post, err := buildPostFromFlattened(&flattened)
 		if err != nil {
@@ -221,7 +246,7 @@ func (psdb *PlanetScaleDB) GetPosts(ctx context.Context, from *time.Time, cursor
 	return posts, nil
 }
 
-func buildPostFromFlattened(post *flattenedPost) (*types.Post, error) {
+func buildPostFromFlattened(post *flattenedPost) (*model.Post, error) {
 	var communityIds []int64
 	if err := json.Unmarshal([]byte(post.CommunityIdsStr), &communityIds); err != nil {
 		return nil, err
@@ -232,33 +257,108 @@ func buildPostFromFlattened(post *flattenedPost) (*types.Post, error) {
 		return nil, err
 	}
 
-	communities := make([]*types.Community, len(communityIds))
+	communities := make([]*model.Community, len(communityIds))
 	for i, communityId := range communityIds {
-		communities[i] = &types.Community{
+		communities[i] = &model.Community{
 			Id:   communityId,
 			Name: communityNames[i],
 		}
 	}
-
-	return &types.Post{
+	return &model.Post{
 		Id:              post.Id,
-		ContentMetadata: buildContentMetadata(&post.flattenedMetadata),
+		ContentMetadata: buildContentMetadataFromFlattened(&post.flattenedContentMetadata),
 		Title:           post.Title,
 		Content:         post.Content,
 		Communities:     communities,
 	}, nil
 }
 
-func buildContentMetadata(metadata *flattenedMetadata) *types.ContentMetadata {
-	return &types.ContentMetadata{
+type flattenedComment struct {
+	flattenedContentMetadata `db:",inline"`
+	Id                       int64  `db:"id"`
+	RootMetadataId           int64  `db:"root_metadata_id"`
+	ParentMetadataId         int64  `db:"parent_metadata_id"`
+	Content                  string `db:"content"`
+}
+
+var commentColumns = append([]interface{}{
+	"c.id",
+	"c.metadata_id",
+	"c.root_metadata_id",
+	"c.parent_metadata_id",
+	"c.content",
+}, contentMetadataColumns...)
+
+func (psdb *PlanetScaleDB) GetCommentById(ctx context.Context, id int64) (*model.Comment, error) {
+	var comment flattenedComment
+	if err := psdb.sess.SQL().
+		Select(commentColumns...).
+		From("comment as c").
+		Join("content_metadata as cm").On("c.metadata_id = cm.id").
+		Join("person").On("cm.creator_id = person.firebase_id").
+		Where("c.id = ?", id).
+		IteratorContext(ctx).
+		One(&comment); err != nil {
+		if err == db.ErrNoMoreRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return buildCommentFromFlattened(&comment), nil
+}
+
+func (psdb *PlanetScaleDB) GetCommentForest(ctx context.Context, rootMetadataId int64, opts *CommentTreeQueryOpts) ([]*model.CommentTree, error) {
+	var flattenedComments []flattenedComment
+	if err := psdb.sess.SQL().
+		Select(append(commentColumns, voteColumns...)...).
+		From("comment as c").
+		Join("content_metadata as cm").On("c.metadata_id = cm.id").
+		// TODO: This can be optimized: don't join if VoteHistoryOf empty
+		LeftJoin("vote as v").On("v.voter_id = ? AND cm.id = v.tgt_metadata_id", opts.VoteHistoryOf).
+		Join("person").On("cm.creator_id = person.firebase_id").
+		Where("root_metadata_id = ?", rootMetadataId).
+		IteratorContext(ctx).
+		All(&flattenedComments); err != nil {
+		return nil, err
+	}
+
+	comments := make([]*model.Comment, len(flattenedComments))
+	for i, flattenedComment := range flattenedComments {
+		comments[i] = buildCommentFromFlattened(&flattenedComment)
+	}
+
+	return buildCommentForest(rootMetadataId, comments), nil
+}
+
+func buildCommentFromFlattened(comment *flattenedComment) *model.Comment {
+	return &model.Comment{
+		ContentMetadata:  buildContentMetadataFromFlattened(&comment.flattenedContentMetadata),
+		Id:               comment.Id,
+		RootMetadataId:   comment.RootMetadataId,
+		ParentMetadataId: comment.ParentMetadataId,
+		Content:          comment.Content,
+	}
+}
+
+func buildContentMetadataFromFlattened(metadata *flattenedContentMetadata) *model.ContentMetadata {
+	var vote *model.Vote
+	if metadata.flattenedUserVote.Value.Valid {
+		value, err := metadata.flattenedUserVote.Value.Value()
+		if err != nil {
+			panic(err)
+		}
+		vote = &model.Vote{Value: int8(value.(int64))}
+	}
+	return &model.ContentMetadata{
 		Id: metadata.Id,
-		Creator: &types.DisplayableUser{
-			User: &types.User{
+		Creator: &model.DisplayableUser{
+			User: &model.User{
 				Id:          metadata.CreatorId,
 				DisplayName: metadata.CreatorDisplayName,
 			},
 			Alias: metadata.CreatorAlias,
 		},
+		UserVote:   vote,
 		NumVotes:   metadata.NumVotes,
 		VoteTotal:  metadata.VoteTotal,
 		Visibility: metadata.Visibility,
@@ -267,12 +367,35 @@ func buildContentMetadata(metadata *flattenedMetadata) *types.ContentMetadata {
 	}
 }
 
-func (psdb *PlanetScaleDB) GetCommunities(ctx context.Context, ids []int64) ([]*types.Community, error) {
+func buildCommentForest(rootId int64, comments []*model.Comment) []*model.CommentTree {
+	adj := make(map[int64][]*model.Comment)
+	for _, comment := range comments {
+		adj[comment.ParentMetadataId] = append(adj[comment.ParentMetadataId], comment)
+	}
+	return buildCommentForestFromAdjList(adj, rootId)
+}
+
+func buildCommentForestFromAdjList(adj map[int64][]*model.Comment, rootId int64) []*model.CommentTree {
+	comments, ok := adj[rootId]
+	if !ok {
+		return []*model.CommentTree{}
+	}
+	forest := make([]*model.CommentTree, len(comments))
+	for i, comment := range comments {
+		forest[i] = &model.CommentTree{
+			Comment:  comment,
+			Children: buildCommentForestFromAdjList(adj, comment.Id),
+		}
+	}
+	return forest
+}
+
+func (psdb *PlanetScaleDB) GetCommunities(ctx context.Context, ids []int64) ([]*model.Community, error) {
 	var where []interface{}
 	if ids != nil {
 		where = []interface{}{"id in ?", ids}
 	}
-	var communities []*types.Community
+	var communities []*model.Community
 	return communities, psdb.sess.SQL().
 		Select("*").
 		From("community").
@@ -362,14 +485,14 @@ func (psdb *PlanetScaleDB) CreateReport(ctx context.Context, userId string, req 
 	return res.LastInsertId()
 }
 
-func (psdb *PlanetScaleDB) CreateUser(ctx context.Context, user *types.User) error {
+func (psdb *PlanetScaleDB) CreateUser(ctx context.Context, user *model.User) error {
 	_, err := psdb.sess.Collection("person").
 		Insert(user)
 	return err
 }
 
-func (psdb *PlanetScaleDB) GetUser(ctx context.Context, id string) (*types.User, error) {
-	var user types.User
+func (psdb *PlanetScaleDB) GetUser(ctx context.Context, id string) (*model.User, error) {
+	var user model.User
 	if err := psdb.sess.SQL().
 		Select("*").
 		From("person").

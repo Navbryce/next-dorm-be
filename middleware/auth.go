@@ -1,23 +1,25 @@
-package routes
+package middleware
 
 import (
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/navbryce/next-dorm-be/db"
+	"github.com/navbryce/next-dorm-be/model"
 	"net/http"
 	"strings"
 )
 
 const (
-	AUTH_TOKEN_KEY   = "authToken"
-	USER_PROFILE_KEY = "user"
+	TOKEN_KEY = "authToken"
+	USER_KEY  = "user"
 )
 
 type AuthConfig struct {
-	sessionNotRequired bool
-	profileNotRequired bool
+	sessionNotRequired    bool
+	appAccountNotRequired bool
 }
 
+// TODO: figure out the best way of handling admin only?
 func Auth(userDB db.UserDatabase, authClient *auth.Client, config *AuthConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authorizationHeader, ok := c.Request.Header["Authorization"]
@@ -47,7 +49,7 @@ func Auth(userDB db.UserDatabase, authClient *auth.Client, config *AuthConfig) g
 		}
 		token, err := authClient.VerifyIDToken(c, authorizationHeader[0][7:])
 
-		c.Set(AUTH_TOKEN_KEY, token)
+		c.Set(TOKEN_KEY, token)
 
 		if err != nil {
 			if config.sessionNotRequired {
@@ -63,7 +65,7 @@ func Auth(userDB db.UserDatabase, authClient *auth.Client, config *AuthConfig) g
 
 		user, err := userDB.GetUser(c, token.UID)
 		if user == nil {
-			if config.profileNotRequired {
+			if config.appAccountNotRequired {
 				return
 			}
 			c.JSON(http.StatusForbidden, gin.H{
@@ -73,11 +75,24 @@ func Auth(userDB db.UserDatabase, authClient *auth.Client, config *AuthConfig) g
 			c.Abort()
 			return
 		}
-		c.Set(USER_PROFILE_KEY, user)
+		c.Set(USER_KEY, user)
 	}
 }
 
-func getUserToken(c *gin.Context) *auth.Token {
-	token, _ := c.Get(AUTH_TOKEN_KEY)
+func GetToken(c *gin.Context) *auth.Token {
+	token, _ := c.Get(TOKEN_KEY)
 	return token.(*auth.Token)
+}
+
+type UserWithToken struct {
+	*auth.Token
+	*model.User
+}
+
+func GetUserWithToken(c *gin.Context) *UserWithToken {
+	user, _ := c.Get(USER_KEY)
+	return &UserWithToken{
+		Token: GetToken(c),
+		User:  user.(*model.User),
+	}
 }

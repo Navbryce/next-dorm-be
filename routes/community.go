@@ -4,7 +4,8 @@ import (
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/navbryce/next-dorm-be/db"
-	"log"
+	"github.com/navbryce/next-dorm-be/middleware"
+	"github.com/navbryce/next-dorm-be/util"
 	"net/http"
 )
 
@@ -14,43 +15,30 @@ type communityRoutes struct {
 
 func AddCommunityRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
 	routes := communityRoutes{db}
-	posts := group.Group("/communities", Auth(db, authClient, &AuthConfig{}))
-	posts.PUT("", routes.createCommunity)
+	posts := group.Group("/communities", middleware.Auth(db, authClient, &middleware.AuthConfig{}))
+	posts.PUT("", util.HandlerWrapper(routes.createCommunity, &util.HandlerOpts{}))
 }
 
 type createCommunityReq struct {
 	Name string
 }
 
-func (cr *communityRoutes) createCommunity(c *gin.Context) {
+func (cr *communityRoutes) createCommunity(c *gin.Context) (interface{}, *util.HTTPError) {
 	var req createCommunityReq
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err,
-		})
-		return
+		return nil, util.BuildJSONBindHTTPErr(err)
 	}
 	if len(req.Name) <= 5 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "community name must be more than 5 characters",
-		})
+		return nil, &util.HTTPError{
+			Status:  http.StatusBadRequest,
+			Message: "community name must be more than 5 characters",
+		}
 	}
 	id, err := cr.db.CreateCommunity(c, req.Name)
 	if err != nil {
-		log.Println("A database error occurred", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "DB error",
-		})
-		return
+		return nil, util.BuildDbHTTPErr(err)
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id": id,
-		},
-	})
-	return
+	return gin.H{
+		"id": id,
+	}, nil
 }

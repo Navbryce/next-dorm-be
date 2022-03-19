@@ -5,20 +5,13 @@ import (
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/navbryce/next-dorm-be/db"
-	"github.com/navbryce/next-dorm-be/types"
+	"github.com/navbryce/next-dorm-be/middleware"
+	"github.com/navbryce/next-dorm-be/model"
 	"github.com/navbryce/next-dorm-be/util"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-)
-
-var (
-	postDoesNotExistHTTPErr = util.HTTPError{
-		Message: "post not found",
-		Status:  http.StatusNotFound,
-	}
 )
 
 type postRoutes struct {
@@ -27,77 +20,64 @@ type postRoutes struct {
 
 func AddPostRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
 	routes := postRoutes{db}
-	posts := group.Group("/posts", Auth(db, authClient, &AuthConfig{}))
-	posts.GET("", routes.getPosts)
-	posts.PUT("", routes.createPost)
-	posts.GET("/:id", routes.getPostById)
-	posts.PUT("/:id/comment", routes.createComment)
-	posts.PUT("/:id/vote", routes.vote)
-	posts.PUT("/:id/report", routes.report)
+	posts := group.Group("/posts", middleware.Auth(db, authClient, &middleware.AuthConfig{}))
+	posts.GET("", util.HandlerWrapper(routes.getPosts, &util.HandlerOpts{}))
+	posts.PUT("", util.HandlerWrapper(routes.createPost, &util.HandlerOpts{}))
+	posts.GET("/:id", util.HandlerWrapper(routes.getPostById, &util.HandlerOpts{}))
+	posts.DELETE("/:id", util.HandlerWrapper(routes.deletePost, &util.HandlerOpts{}))
+	posts.PUT("/:id/votes", util.HandlerWrapper(routes.voteForPost, &util.HandlerOpts{}))
+	posts.PUT("/:id/comments", util.HandlerWrapper(routes.createComment, &util.HandlerOpts{}))
+	posts.GET("/:id/comments", util.HandlerWrapper(routes.getComments, &util.HandlerOpts{}))
+	posts.PUT("/:id/comments/:comment-id/votes", util.HandlerWrapper(routes.voteForComment, &util.HandlerOpts{}))
+	posts.PUT("/:id/reports", util.HandlerWrapper(routes.report, &util.HandlerOpts{}))
 }
 
 type createPostReq struct {
 	Title       string           `json:"title"`
 	Content     string           `json:"content"`
 	Communities []int64          `json:"communities"`
-	Visibility  types.Visibility `json:"visibility"`
+	Visibility  model.Visibility `json:"visibility"`
 }
 
-func (pr *postRoutes) createPost(c *gin.Context) {
+func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) {
 	var req createPostReq
-	// TODO: Add validation and standardize responses
+	// TODO: Add validation
 	// TODO: Auth by community
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err,
-		})
-		return
+		return nil, util.BuildJSONBindHTTPErr(err)
 	}
 
 	if len(req.Title) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "post must have title",
-		})
-		return
+		return nil, &util.HTTPError{
+			Status:  http.StatusBadRequest,
+			Message: "post must have title",
+		}
 	}
 
 	if len(req.Content) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "post must have content",
-		})
-		return
+		return nil, &util.HTTPError{
+			Status:  http.StatusBadRequest,
+			Message: "post must have content",
+		}
 	}
 
 	if len(req.Communities) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "post must belong to at least one community",
-		})
-		return
+		return nil, &util.HTTPError{
+			Status:  http.StatusBadRequest,
+			Message: "post must belong to at least one community",
+		}
 	}
 
 	communities, err := pr.db.GetCommunities(c, req.Communities)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   err,
-		})
-		log.Fatal("database error occurred", err)
-		return
+		return nil, util.BuildDbHTTPErr(err)
 	}
 	if len(communities) != len(req.Communities) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "one of the communities does not exist",
-		})
-		return
+		return nil, util.BuildDoesNotExistHTTPErr("community")
 	}
 
 	creatorAlias := ""
-	if req.Visibility == types.VisibilityHidden {
+	if req.Visibility == model.VisibilityHidden {
 		creatorAlias = util.GenerateAlias()
 	}
 
@@ -106,129 +86,121 @@ func (pr *postRoutes) createPost(c *gin.Context) {
 		Content:     req.Content,
 		Communities: req.Communities,
 		CreateContentMetadata: &db.CreateContentMetadata{
-			CreatorId:    getUserToken(c).UID,
+			CreatorId:    middleware.GetToken(c).UID,
 			Visibility:   req.Visibility,
 			CreatorAlias: creatorAlias,
 		},
 	})
 	if err != nil {
-		log.Println("database error occurred", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "database error",
-		})
-		return
+		return nil, util.BuildDbHTTPErr(err)
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id": id,
-		},
-	})
-	return
+	return gin.H{
+		"id": id,
+	}, nil
+}
+
+func (pr *postRoutes) deletePost(c *gin.Context) (interface{}, *util.HTTPError) {
+	post, httpErr := pr.mustGetPostByIdStr(c, c.Param("id"))
+	if httpErr != nil {
+		return nil, httpErr
+	}
+	if post.CanDelete(middleware.GetToken(c).UID) {
+		return nil, util.BuildOperationForbidden("User is not the owner of the post")
+	}
+	if err := pr.db.MarkPostAsDeleted(c, post.Id); err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	return nil, nil
 }
 
 type createCommentReq struct {
-	Content    string           `json:"content"`
-	Visibility types.Visibility `json:"visibility"`
+	ParentCommentId int64            `json:"parentCommentId"`
+	Content         string           `json:"content"`
+	Visibility      model.Visibility `json:"visibility"`
 }
 
-func (pr *postRoutes) createComment(c *gin.Context) {
+func (pr *postRoutes) createComment(c *gin.Context) (interface{}, *util.HTTPError) {
 	var req createCommentReq
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err,
-		})
-		return
+		return nil, util.BuildJSONBindHTTPErr(err)
 	}
 
 	if len(req.Content) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "post must have content",
-		})
-		return
+		return nil, &util.HTTPError{
+			Status:  http.StatusBadRequest,
+			Message: "comment must have content",
+		}
 	}
 
-	post, httpErr := pr.mustGetPostByIdStr(c, c.Param("id"))
-	if httpErr != nil {
-		util.HandleHTTPErrorRes(c, httpErr)
-		return
+	var parentMetadataId int64
+	var rootMetadataId int64
+	var httpErr *util.HTTPError
+	if req.ParentCommentId == 0 {
+		var post *model.Post
+		post, httpErr = pr.mustGetPostByIdStr(c, c.Param("id"))
+		if httpErr != nil {
+			return nil, httpErr
+		}
+		rootMetadataId = post.ContentMetadata.Id
+		parentMetadataId = rootMetadataId
+	} else {
+		comment, err := pr.db.GetCommentById(c, req.ParentCommentId)
+		if err != nil {
+			return nil, util.BuildDbHTTPErr(err)
+		} else if comment == nil {
+			return nil, util.BuildDoesNotExistHTTPErr("comment")
+		}
+		rootMetadataId = comment.RootMetadataId
+		parentMetadataId = comment.ContentMetadata.Id
 	}
 
 	creatorAlias := ""
-	if req.Visibility == types.VisibilityHidden {
+	if req.Visibility == model.VisibilityHidden {
 		creatorAlias = util.GenerateAlias()
 	}
 
 	id, err := pr.db.CreateComment(c, &db.CreateComment{
 		Content:          req.Content,
-		ParentMetadataId: post.ContentMetadata.Id,
+		RootMetadataId:   rootMetadataId,
+		ParentMetadataId: parentMetadataId,
 		CreateContentMetadata: &db.CreateContentMetadata{
-			CreatorId:    getUserToken(c).UID,
+			CreatorId:    middleware.GetToken(c).UID,
 			Visibility:   req.Visibility,
 			CreatorAlias: creatorAlias,
 		},
 	})
 	if err != nil {
-		log.Println("database error occurred", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "database error",
-		})
-		return
+		return nil, util.BuildDbHTTPErr(err)
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id": id,
-		},
-	})
-	return
+	return &gin.H{
+		"id": id,
+	}, nil
 }
 
-func (pr *postRoutes) getPostById(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err,
-		})
-		return
+func (pr *postRoutes) deleteComment(c *gin.Context) (interface{}, *util.HTTPError) {
+	comment, httpErr := pr.mustGetCommentByIdStr(c, c.Param("comment-id"))
+	if httpErr != nil {
+		return nil, httpErr
 	}
-	post, err := pr.db.GetPostById(c, id)
-	if err != nil {
-		log.Println("database error occurred", err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"message": "database error",
-		})
-		return
-	}
-	if post == nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"message": "post not found",
-		})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    makePostDisplayable(post),
-	})
 }
 
-func (pr *postRoutes) getPosts(c *gin.Context) {
+func (pr *postRoutes) getPostById(c *gin.Context) (interface{}, *util.HTTPError) {
+	post, httpErr := pr.mustGetPostByIdStr(c, c.Param("id"))
+	if httpErr != nil {
+		return nil, httpErr
+	}
+	return post.MakeDisplayableFor(middleware.GetToken(c).UID), nil
+}
+
+func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
 	var from *time.Time
 	if c.Query("from") != "" {
 		fromTime, err := time.Parse(time.RFC3339, c.Query("from"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"message": err,
-			})
-			return
+			return nil, &util.HTTPError{
+				Status:  http.StatusBadRequest,
+				Message: "Invalid date format",
+			}
 		}
 		from = &fromTime
 	}
@@ -240,11 +212,7 @@ func (pr *postRoutes) getPosts(c *gin.Context) {
 		for i, communityIdString := range communityIdStrings {
 			communityId, err := strconv.ParseInt(communityIdString, 10, 64)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"success": false,
-					"message": err,
-				})
-				return
+				return nil, util.MalformedIdHTTPErr
 			}
 			communityIds[i] = communityId
 		}
@@ -255,11 +223,10 @@ func (pr *postRoutes) getPosts(c *gin.Context) {
 		var err error
 		limit, err = strconv.ParseInt(c.Query("limit"), 10, 16)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"message": err,
-			})
-			return
+			return nil, &util.HTTPError{
+				Status:  http.StatusBadRequest,
+				Message: "malformed limit",
+			}
 		}
 		if limit > 500 {
 			limit = 500
@@ -267,101 +234,97 @@ func (pr *postRoutes) getPosts(c *gin.Context) {
 	}
 	cursor := c.Query("cursor")
 
-	posts, err := pr.db.GetPosts(c, from, cursor, communityIds, int16(limit))
+	posts, err := pr.db.GetPosts(c, &db.PostsListQuery{
+		From:         from,
+		Cursor:       cursor,
+		CommunityIds: communityIds,
+		PostsListQueryOpts: &db.PostsListQueryOpts{
+			Limit:         int16(limit),
+			VoteHistoryOf: middleware.GetToken(c).UID,
+		},
+	})
 	if err != nil {
-		log.Println("database error occurred", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "database error",
-		})
-		return
+		return nil, util.BuildDbHTTPErr(err)
 	}
-	displayablePosts := make([]*types.Post, len(posts))
+	displayablePosts := make([]*model.Post, len(posts))
 	for i, post := range posts {
-		displayablePosts[i] = makePostDisplayable(post)
+		displayablePosts[i] = post.MakeDisplayableFor(middleware.GetToken(c).UID)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    displayablePosts,
-	})
+	return displayablePosts, nil
 }
 
-func makePostDisplayable(post *types.Post) *types.Post {
-	switch post.Visibility {
-	case types.VisibilityHidden:
-		post.Creator = &types.DisplayableUser{
-			User:  nil,
-			Alias: post.Creator.Alias,
-		}
+func (pr *postRoutes) getComments(c *gin.Context) (interface{}, *util.HTTPError) {
+	post, httpErr := pr.mustGetPostByIdStr(c, c.Param("id"))
+	if httpErr != nil {
+		return nil, httpErr
 	}
-	return post
+
+	comments, err := pr.db.GetCommentForest(c, post.ContentMetadata.Id, &db.CommentTreeQueryOpts{VoteHistoryOf: middleware.GetToken(c).UID})
+	if err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+
+	for i, comment := range comments {
+		comments[i] = comment.MakeDisplayableFor(middleware.GetToken(c).UID)
+	}
+
+	return comments, nil
 }
 
 type voteReq struct {
 	Value int8
 }
 
-func (pr *postRoutes) vote(c *gin.Context) {
-	postId, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err,
-		})
-		return
-	}
-	post, err := pr.db.GetPostById(c, postId)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "database error",
-		})
-		log.Println("a database error occurred", err)
-		return
-	} else if post == nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"message": "post does not exist",
-		})
-		return
+func (pr *postRoutes) voteForPost(c *gin.Context) (interface{}, *util.HTTPError) {
+	post, httpErr := pr.mustGetPostByIdStr(c, c.Param("id"))
+	if httpErr != nil {
+		return nil, httpErr
 	}
 
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err,
-		})
-		return
-	}
 	var req voteReq
 	if err := c.BindJSON(&req); err != nil {
-		// TODO: Fix validation error messages
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err,
-		})
-		return
+		return nil, util.BuildJSONBindHTTPErr(err)
 	}
 
-	if req.Value < -1 {
-		req.Value = -1
-	} else if req.Value > 1 {
-		req.Value = 1
+	if err := pr.db.Vote(c, middleware.GetToken(c).UID, post.ContentMetadata.Id, normalizeVote(req.Value)); err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	return nil, nil
+}
+
+func (pr *postRoutes) voteForComment(c *gin.Context) (interface{}, *util.HTTPError) {
+	comment, httpErr := pr.mustGetCommentByIdStr(c, c.Param("comment-id"))
+	if httpErr != nil {
+		return nil, httpErr
 	}
 
-	if err := pr.db.Vote(c, getUserToken(c).UID, post.ContentMetadata.Id, req.Value); err != nil {
-		log.Println("database error occurred", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "database error",
-		})
-		return
+	if strconv.FormatInt(comment.RootMetadataId, 10) != c.Param("id") {
+		return nil, &util.HTTPError{
+			Status:  http.StatusNotFound,
+			Message: "comment does not exist under post",
+		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-	})
+	var req voteReq
+	if err := c.BindJSON(&req); err != nil {
+		return nil, util.BuildJSONBindHTTPErr(err)
+	}
+
+	if err := pr.db.Vote(c, middleware.GetToken(c).UID, comment.ContentMetadata.Id, normalizeVote(req.Value)); err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	return nil, nil
+}
+
+func normalizeVote(value int8) int8 {
+	if value < -1 {
+		return -1
+	} else if value > 1 {
+		return 1
+	}
+	return value
+
 }
 
 type reportReq struct {
@@ -369,14 +332,10 @@ type reportReq struct {
 }
 
 // TODO: Add GetReportByPost and GetReportByCommunity
-func (pr *postRoutes) report(c *gin.Context) {
+func (pr *postRoutes) report(c *gin.Context) (interface{}, *util.HTTPError) {
 	var req reportReq
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err,
-		})
-		return
+		return nil, util.BuildJSONBindHTTPErr(err)
 	}
 
 	/* TODO: Possible race condition if post was deleted
@@ -384,42 +343,59 @@ func (pr *postRoutes) report(c *gin.Context) {
 	*/
 	post, httpErr := pr.mustGetPostByIdStr(c, c.Param("id"))
 	if httpErr != nil {
-		util.HandleHTTPErrorRes(c, httpErr)
-		return
+		return nil, httpErr
 	}
 
-	reportId, err := pr.db.CreateReport(c, getUserToken(c).UID, &db.CreateReport{
+	reportId, err := pr.db.CreateReport(c, middleware.GetToken(c).UID, &db.CreateReport{
 		PostId: post.Id,
 		Reason: req.Reason,
 	})
 	if err != nil {
-		log.Println("a database error occurred", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "database error",
-		})
-		return
+		return nil, util.BuildDbHTTPErr(err)
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id": reportId,
-		},
-	})
+	return gin.H{
+		"id": reportId,
+	}, nil
 }
 
-// mustGetPostByIdStr attempts to get the post by the id string
-func (pr *postRoutes) mustGetPostByIdStr(ctx context.Context, idStr string) (*types.Post, *util.HTTPError) {
+// mustGetPostByIdStr attempts to get post by id str
+func (pr *postRoutes) mustGetPostByIdStr(ctx context.Context, idStr string) (*model.Post, *util.HTTPError) {
+	if post, err := mustGetByIdStr(ctx, func(ctx context.Context, id int64) (entity interface{}, isNil bool, dbErr error) {
+		post, err := pr.db.GetPostById(ctx, id, &db.PostQueryOpts{})
+		return post, post == nil, err
+	}, "post", idStr); err != nil {
+		return nil, err
+	} else {
+		return post.(*model.Post), nil
+	}
+
+}
+
+// mustGetCommentByIdStr attempts to get post by id str
+func (pr *postRoutes) mustGetCommentByIdStr(ctx context.Context, idStr string) (*model.Comment, *util.HTTPError) {
+	if post, err := mustGetByIdStr(ctx, func(ctx context.Context, id int64) (entity interface{}, isNil bool, dbErr error) {
+		post, err := pr.db.GetCommentById(ctx, id)
+		return post, post == nil, err
+	}, "comment", idStr); err != nil {
+		return nil, err
+	} else {
+		return post.(*model.Comment), nil
+	}
+
+}
+
+type FetchById = func(ctx context.Context, id int64) (entity interface{}, isNil bool, dbErr error)
+
+func mustGetByIdStr(ctx context.Context, fetch FetchById, entityType string, idStr string) (interface{}, *util.HTTPError) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		return nil, &util.DbHTTPErr
+		return nil, util.MalformedIdHTTPErr
 	}
-	post, err := pr.db.GetPostById(ctx, id)
+	entity, isNil, err := fetch(ctx, id)
 	if err != nil {
-		log.Println("a database error occurred", err)
-		return nil, &util.MalformedIdHTTPErr
-	} else if post == nil {
-		return nil, &postDoesNotExistHTTPErr
+		return nil, util.BuildDbHTTPErr(err)
+	} else if isNil {
+		return nil, util.BuildDoesNotExistHTTPErr(entityType)
 	}
-	return post, nil
+	return entity, nil
 }
