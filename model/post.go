@@ -1,19 +1,21 @@
 package model
 
-import "time"
-
-type Community struct {
-	Id        int64  `db:"id" json:"id"`
-	Name      string `db:"name" json:"name"`
-	ParentId  int64  `db:"parent_id" json:"parentId"`
-	HasParent bool   `db:"has_parent" json:"hasParent"` // TODO: Add has parent
-}
+import (
+	"time"
+)
 
 type Visibility string
 
 const (
 	VisibilityNormal Visibility = "NORMAL"
 	VisibilityHidden            = "HIDDEN"
+)
+
+type Status string
+
+const (
+	StatusPosted  Status = "POSTED"
+	StatusDeleted        = "DELETED"
 )
 
 type Vote struct {
@@ -24,28 +26,31 @@ type ContentMetadata struct {
 	Id         int64            `json:"-"`
 	Creator    *DisplayableUser `json:"creator"`
 	UserVote   *Vote            `json:"userVote"`
-	Visibility Visibility       `json:"visibility"`
-	NumVotes   int              `json:"numVotes"`
-	VoteTotal  int              `json:"voteTotal"`
-	CreatedAt  time.Time        `json:"createdAt"`
-	UpdatedAt  time.Time        `json:"updatedAt"`
+	Status     `json:"status"`
+	Visibility Visibility `json:"visibility"`
+	NumVotes   int        `json:"numVotes"`
+	VoteTotal  int        `json:"voteTotal"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
-func (cm *ContentMetadata) MakeDisplayableFor(userId string) *ContentMetadata {
-	if userId == cm.Creator.Id {
+func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
+	if user != nil && user.Id == cm.Creator.Id {
 		return cm
 	}
 
 	switch cm.Visibility {
 	case VisibilityHidden:
-		cm.Creator = &DisplayableUser{Alias: cm.Creator.Alias}
+		cm.Creator = &DisplayableUser{AnonymousUser: cm.Creator.AnonymousUser}
+	case VisibilityNormal:
+		cm.Creator = &DisplayableUser{User: cm.Creator.User}
 	}
 
 	return cm
 }
 
-func (cm *ContentMetadata) CanDelete(userId string) bool {
-	return userId == cm.Creator.Id
+func (cm *ContentMetadata) CanDelete(user *User) bool {
+	return user.Id == cm.Creator.Id
 }
 
 type Post struct {
@@ -57,8 +62,8 @@ type Post struct {
 }
 
 // MakeDisplayableFor mutates the object
-func (p *Post) MakeDisplayableFor(userId string) *Post {
-	p.ContentMetadata = p.ContentMetadata.MakeDisplayableFor(userId)
+func (p *Post) MakeDisplayableFor(user *User) *Post {
+	p.ContentMetadata = p.ContentMetadata.MakeDisplayableFor(user)
 	return p
 }
 
@@ -76,10 +81,11 @@ type CommentTree struct {
 }
 
 // MakeDisplayableFor mutates the object
-func (ct *CommentTree) MakeDisplayableFor(userId string) *CommentTree {
-	for i, tree := range ct.Children {
-		ct.Children[i] = tree.MakeDisplayableFor(userId)
-		tree.ContentMetadata = tree.ContentMetadata.MakeDisplayableFor(userId)
+func (ct *CommentTree) MakeDisplayableFor(user *User) *CommentTree {
+	ct.ContentMetadata = ct.ContentMetadata.MakeDisplayableFor(user)
+	for i, child := range ct.Children {
+		ct.Children[i] = child.MakeDisplayableFor(user)
+		child.ContentMetadata = child.ContentMetadata.MakeDisplayableFor(user)
 	}
 	return ct
 }

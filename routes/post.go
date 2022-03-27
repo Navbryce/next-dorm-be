@@ -4,14 +4,13 @@ import (
 	"context"
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
+	"github.com/navbryce/next-dorm-be/app"
 	"github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/middleware"
 	"github.com/navbryce/next-dorm-be/model"
 	"github.com/navbryce/next-dorm-be/util"
 	"net/http"
 	"strconv"
-	"strings"
-	"time"
 )
 
 type postRoutes struct {
@@ -20,16 +19,18 @@ type postRoutes struct {
 
 func AddPostRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
 	routes := postRoutes{db}
-	posts := group.Group("/posts", middleware.Auth(db, authClient, &middleware.AuthConfig{}))
-	posts.GET("", util.HandlerWrapper(routes.getPosts, &util.HandlerOpts{}))
-	posts.PUT("", util.HandlerWrapper(routes.createPost, &util.HandlerOpts{}))
+	posts := group.Group("/posts", middleware.GenAuth(db, authClient, &middleware.AuthConfig{}))
+	posts.POST("",
+		util.HandlerWrapper(routes.getPosts, &util.HandlerOpts{}))
+	posts.PUT("", middleware.RequireAccount(), util.HandlerWrapper(routes.createPost, &util.HandlerOpts{}))
 	posts.GET("/:id", util.HandlerWrapper(routes.getPostById, &util.HandlerOpts{}))
-	posts.DELETE("/:id", util.HandlerWrapper(routes.deletePost, &util.HandlerOpts{}))
-	posts.PUT("/:id/votes", util.HandlerWrapper(routes.voteForPost, &util.HandlerOpts{}))
-	posts.PUT("/:id/comments", util.HandlerWrapper(routes.createComment, &util.HandlerOpts{}))
+	posts.DELETE("/:id", middleware.RequireAccount(), util.HandlerWrapper(routes.deletePost, &util.HandlerOpts{}))
+	posts.PUT("/:id/votes", middleware.RequireAccount(), util.HandlerWrapper(routes.voteForPost, &util.HandlerOpts{}))
+	posts.PUT("/:id/comments", middleware.RequireAccount(), util.HandlerWrapper(routes.createComment, &util.HandlerOpts{}))
 	posts.GET("/:id/comments", util.HandlerWrapper(routes.getComments, &util.HandlerOpts{}))
-	posts.PUT("/:id/comments/:comment-id/votes", util.HandlerWrapper(routes.voteForComment, &util.HandlerOpts{}))
-	posts.PUT("/:id/reports", util.HandlerWrapper(routes.report, &util.HandlerOpts{}))
+	posts.DELETE("/:id/comments/:comment-id", middleware.RequireAccount(), util.HandlerWrapper(routes.deleteComment, &util.HandlerOpts{}))
+	posts.PUT("/:id/comments/:comment-id/votes", middleware.RequireAccount(), util.HandlerWrapper(routes.voteForComment, &util.HandlerOpts{}))
+	posts.PUT("/:id/reports", middleware.RequireAccount(), util.HandlerWrapper(routes.report, &util.HandlerOpts{}))
 }
 
 type createPostReq struct {
@@ -42,7 +43,7 @@ type createPostReq struct {
 func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) {
 	var req createPostReq
 	// TODO: Add validation
-	// TODO: Auth by community
+	// TODO: GenAuth by community
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
@@ -61,10 +62,11 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 		}
 	}
 
-	if len(req.Communities) == 0 {
+	// TODO: Enable multiple communities in the future?
+	if len(req.Communities) == 1 {
 		return nil, &util.HTTPError{
 			Status:  http.StatusBadRequest,
-			Message: "post must belong to at least one community",
+			Message: "post must belong to at exactly one community",
 		}
 	}
 
@@ -86,7 +88,7 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 		Content:     req.Content,
 		Communities: req.Communities,
 		CreateContentMetadata: &db.CreateContentMetadata{
-			CreatorId:    middleware.GetToken(c).UID,
+			CreatorId:    middleware.MustGetToken(c).UID,
 			Visibility:   req.Visibility,
 			CreatorAlias: creatorAlias,
 		},
@@ -99,13 +101,14 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 	}, nil
 }
 
+// TODO: Move logic to controllers
 func (pr *postRoutes) deletePost(c *gin.Context) (interface{}, *util.HTTPError) {
 	post, httpErr := pr.mustGetPostByIdStr(c, c.Param("id"))
 	if httpErr != nil {
 		return nil, httpErr
 	}
-	if post.CanDelete(middleware.GetToken(c).UID) {
-		return nil, util.BuildOperationForbidden("User is not the owner of the post")
+	if !post.CanDelete(middleware.MustGetUser(c)) {
+		return nil, util.BuildOperationForbidden("user is not the owner of the post")
 	}
 	if err := pr.db.MarkPostAsDeleted(c, post.Id); err != nil {
 		return nil, util.BuildDbHTTPErr(err)
@@ -161,10 +164,10 @@ func (pr *postRoutes) createComment(c *gin.Context) (interface{}, *util.HTTPErro
 
 	id, err := pr.db.CreateComment(c, &db.CreateComment{
 		Content:          req.Content,
-		RootMetadataId:   rootMetadataId,
-		ParentMetadataId: parentMetadataId,
+		RootMetadataId:   rootMetadataId,   // TODO: Switch to post id?
+		ParentMetadataId: parentMetadataId, // TODO: Switch to parent comment id?
 		CreateContentMetadata: &db.CreateContentMetadata{
-			CreatorId:    middleware.GetToken(c).UID,
+			CreatorId:    middleware.MustGetToken(c).UID,
 			Visibility:   req.Visibility,
 			CreatorAlias: creatorAlias,
 		},
@@ -182,6 +185,14 @@ func (pr *postRoutes) deleteComment(c *gin.Context) (interface{}, *util.HTTPErro
 	if httpErr != nil {
 		return nil, httpErr
 	}
+	// TODO: Check if comment exists under post?
+	if !comment.CanDelete(middleware.MustGetUser(c)) {
+		return nil, util.BuildOperationForbidden("user is not owner of the post")
+	}
+	if err := pr.db.MarkCommentAsDeleted(c, comment.Id); err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	return nil, nil
 }
 
 func (pr *postRoutes) getPostById(c *gin.Context) (interface{}, *util.HTTPError) {
@@ -189,69 +200,46 @@ func (pr *postRoutes) getPostById(c *gin.Context) (interface{}, *util.HTTPError)
 	if httpErr != nil {
 		return nil, httpErr
 	}
-	return post.MakeDisplayableFor(middleware.GetToken(c).UID), nil
+	return post.MakeDisplayableFor(middleware.MustGetUser(c)), nil
+}
+
+// TODO: Turn cursor into struct with fields for each type and add methods for each type. No enum
+type getPostsReq struct {
+	OrderBy app.PostCursorType `json:"orderBy"`
+	Cursor  app.RawCursor      `json:"cursor"`
 }
 
 func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
-	var from *time.Time
-	if c.Query("from") != "" {
-		fromTime, err := time.Parse(time.RFC3339, c.Query("from"))
-		if err != nil {
-			return nil, &util.HTTPError{
-				Status:  http.StatusBadRequest,
-				Message: "Invalid date format",
-			}
-		}
-		from = &fromTime
+	var req getPostsReq
+	if err := c.BindJSON(&req); err != nil {
+		return nil, util.BuildJSONBindHTTPErr(err)
 	}
-
-	var communityIds []int64 = nil
-	if c.Query("community") != "" {
-		communityIdStrings := strings.Split(c.Query("community"), ",")
-		communityIds = make([]int64, len(communityIdStrings))
-		for i, communityIdString := range communityIdStrings {
-			communityId, err := strconv.ParseInt(communityIdString, 10, 64)
-			if err != nil {
-				return nil, util.MalformedIdHTTPErr
-			}
-			communityIds[i] = communityId
+	if req.OrderBy != app.PostCursorTypeMostRecent {
+		return nil, &util.HTTPError{
+			Status:  http.StatusBadRequest,
+			Message: "Invalid order by",
 		}
 	}
-
-	limit := int64(5)
-	if c.Query("limit") != "" {
-		var err error
-		limit, err = strconv.ParseInt(c.Query("limit"), 10, 16)
-		if err != nil {
-			return nil, &util.HTTPError{
-				Status:  http.StatusBadRequest,
-				Message: "malformed limit",
-			}
-		}
-		if limit > 500 {
-			limit = 500
+	cursor, err := app.MostRecentCursorFromRaw(pr.db, middleware.GetUser(c), req.Cursor)
+	if err != nil {
+		return nil, &util.HTTPError{
+			Status:  http.StatusBadRequest,
+			Message: err.Error(),
 		}
 	}
-	cursor := c.Query("cursor")
-
-	posts, err := pr.db.GetPosts(c, &db.PostsListQuery{
-		From:         from,
-		Cursor:       cursor,
-		CommunityIds: communityIds,
-		PostsListQueryOpts: &db.PostsListQueryOpts{
-			Limit:         int16(limit),
-			VoteHistoryOf: middleware.GetToken(c).UID,
-		},
-	})
+	posts, nextCursor, err := cursor.Posts(c, &app.PostCursorOpts{Limit: 2})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
 	displayablePosts := make([]*model.Post, len(posts))
 	for i, post := range posts {
-		displayablePosts[i] = post.MakeDisplayableFor(middleware.GetToken(c).UID)
+		displayablePosts[i] = post.MakeDisplayableFor(middleware.GetUser(c))
 	}
 
-	return displayablePosts, nil
+	return gin.H{
+		"posts":      displayablePosts,
+		"nextCursor": nextCursor,
+	}, nil
 }
 
 func (pr *postRoutes) getComments(c *gin.Context) (interface{}, *util.HTTPError) {
@@ -259,21 +247,24 @@ func (pr *postRoutes) getComments(c *gin.Context) (interface{}, *util.HTTPError)
 	if httpErr != nil {
 		return nil, httpErr
 	}
-
-	comments, err := pr.db.GetCommentForest(c, post.ContentMetadata.Id, &db.CommentTreeQueryOpts{VoteHistoryOf: middleware.GetToken(c).UID})
+	voteHistoryOf := ""
+	if middleware.GetToken(c) != nil {
+		voteHistoryOf = middleware.GetToken(c).UID
+	}
+	comments, err := pr.db.GetCommentForest(c, post.ContentMetadata.Id, &db.CommentTreeQueryOpts{VoteHistoryOf: voteHistoryOf})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
 
 	for i, comment := range comments {
-		comments[i] = comment.MakeDisplayableFor(middleware.GetToken(c).UID)
+		comments[i] = comment.MakeDisplayableFor(middleware.GetUser(c))
 	}
 
 	return comments, nil
 }
 
 type voteReq struct {
-	Value int8
+	Value int8 `json:"value"`
 }
 
 func (pr *postRoutes) voteForPost(c *gin.Context) (interface{}, *util.HTTPError) {
@@ -286,8 +277,7 @@ func (pr *postRoutes) voteForPost(c *gin.Context) (interface{}, *util.HTTPError)
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
-
-	if err := pr.db.Vote(c, middleware.GetToken(c).UID, post.ContentMetadata.Id, normalizeVote(req.Value)); err != nil {
+	if err := pr.db.Vote(c, middleware.MustGetToken(c).UID, post.ContentMetadata.Id, normalizeVote(req.Value)); err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
 	return nil, nil
@@ -311,7 +301,7 @@ func (pr *postRoutes) voteForComment(c *gin.Context) (interface{}, *util.HTTPErr
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
 
-	if err := pr.db.Vote(c, middleware.GetToken(c).UID, comment.ContentMetadata.Id, normalizeVote(req.Value)); err != nil {
+	if err := pr.db.Vote(c, middleware.MustGetToken(c).UID, comment.ContentMetadata.Id, normalizeVote(req.Value)); err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
 	return nil, nil
@@ -346,7 +336,7 @@ func (pr *postRoutes) report(c *gin.Context) (interface{}, *util.HTTPError) {
 		return nil, httpErr
 	}
 
-	reportId, err := pr.db.CreateReport(c, middleware.GetToken(c).UID, &db.CreateReport{
+	reportId, err := pr.db.CreateReport(c, middleware.MustGetToken(c).UID, &db.CreateReport{
 		PostId: post.Id,
 		Reason: req.Reason,
 	})

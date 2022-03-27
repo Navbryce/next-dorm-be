@@ -13,5 +13,5 @@ TBD
 - Better error handling (prevent crashes)
 - Add roles to routes! (Check if admin)
 - Refactor routes and database!
-- Add feeds
 - Add community hierarchy?
+- Dicebear avatars

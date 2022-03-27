@@ -15,28 +15,16 @@ const (
 )
 
 type AuthConfig struct {
-	sessionNotRequired    bool
-	appAccountNotRequired bool
 }
 
 // TODO: figure out the best way of handling admin only?
-func Auth(userDB db.UserDatabase, authClient *auth.Client, config *AuthConfig) gin.HandlerFunc {
+func GenAuth(userDB db.UserDatabase, authClient *auth.Client, _ *AuthConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authorizationHeader, ok := c.Request.Header["Authorization"]
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"message": "no authorization header",
-			})
-			c.Abort()
 			return
 		}
 		if len(authorizationHeader) == 0 {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"message": "no authorization header",
-			})
-			c.Abort()
 			return
 		}
 		if strings.Index(authorizationHeader[0], "Bearer ") != 0 || len(authorizationHeader[0]) < 8 {
@@ -47,14 +35,12 @@ func Auth(userDB db.UserDatabase, authClient *auth.Client, config *AuthConfig) g
 			c.Abort()
 			return
 		}
+		// TODO: VerifyIDToken and check revoked?
 		token, err := authClient.VerifyIDToken(c, authorizationHeader[0][7:])
 
 		c.Set(TOKEN_KEY, token)
 
 		if err != nil {
-			if config.sessionNotRequired {
-				return
-			}
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"message": "invalid token",
@@ -65,34 +51,72 @@ func Auth(userDB db.UserDatabase, authClient *auth.Client, config *AuthConfig) g
 
 		user, err := userDB.GetUser(c, token.UID)
 		if user == nil {
-			if config.appAccountNotRequired {
-				return
-			}
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": "must have a user profile",
-			})
-			c.Abort()
 			return
 		}
 		c.Set(USER_KEY, user)
 	}
 }
 
-func GetToken(c *gin.Context) *auth.Token {
-	token, _ := c.Get(TOKEN_KEY)
-	return token.(*auth.Token)
-}
-
-type UserWithToken struct {
-	*auth.Token
-	*model.User
-}
-
-func GetUserWithToken(c *gin.Context) *UserWithToken {
-	user, _ := c.Get(USER_KEY)
-	return &UserWithToken{
-		Token: GetToken(c),
-		User:  user.(*model.User),
+func RequireToken() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if GetToken(c) != nil {
+			return
+		}
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": "invalid token",
+		})
+		c.Abort()
 	}
+}
+
+// RequireAccount requires an account (and a token)
+func RequireAccount() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		RequireToken()(c)
+		if c.IsAborted() {
+			return
+		}
+		if GetUser(c) != nil {
+			return
+		}
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": "must have a user profile",
+		})
+		c.Abort()
+		return
+	}
+}
+
+func GetToken(c *gin.Context) *auth.Token {
+	tokenMaybe, loggedIn := c.Get(TOKEN_KEY)
+	if !loggedIn {
+		return nil
+	}
+	return tokenMaybe.(*auth.Token)
+}
+
+func MustGetToken(c *gin.Context) *auth.Token {
+	token := GetToken(c)
+	if token == nil {
+		panic("expected a token")
+	}
+	return token
+}
+
+func GetUser(c *gin.Context) *model.User {
+	userMaybe, hasProfile := c.Get(USER_KEY)
+	if !hasProfile {
+		return nil
+	}
+	return userMaybe.(*model.User)
+}
+
+func MustGetUser(c *gin.Context) *model.User {
+	user := GetUser(c)
+	if user == nil {
+		panic("expected a user to be logged in")
+	}
+	return user
 }

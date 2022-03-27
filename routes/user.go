@@ -16,17 +16,13 @@ type userRoutes struct {
 
 func AddUserRoutes(group *gin.RouterGroup, userDatabase db.UserDatabase, authClient *auth.Client) {
 	routes := userRoutes{userDatabase}
-	users := group.Group("/users", middleware.Auth(userDatabase, authClient, &middleware.AuthConfig{
-		appAccountNotRequired: true,
-	}))
+	users := group.Group("/users", middleware.GenAuth(userDatabase, authClient, &middleware.AuthConfig{}), middleware.RequireToken())
 	users.PUT("", routes.CreateUser)
 }
 
 type createUserReq struct {
 	DisplayName string
 }
-
-// TODO User joins communities?
 
 func (ur userRoutes) CreateUser(c *gin.Context) {
 	var req createUserReq
@@ -37,7 +33,7 @@ func (ur userRoutes) CreateUser(c *gin.Context) {
 		})
 	}
 	if err := ur.db.CreateUser(c, &model.User{
-		Id:          middleware.GetToken(c).UID,
+		Id:          middleware.MustGetToken(c).UID,
 		DisplayName: req.DisplayName,
 	}); err != nil {
 		log.Println("database error occurred", err)

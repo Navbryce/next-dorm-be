@@ -1,52 +1,26 @@
-package db
+package planetscale
 
 import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
+	db2 "github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/model"
+	"github.com/navbryce/next-dorm-be/util"
 	"github.com/upper/db/v4"
-	"github.com/upper/db/v4/adapter/mysql"
-	"os"
 	"time"
 )
 
-type PlanetScaleDB struct {
-	sess  db.Session
-	sqlDB *sql.DB
+type PostDB struct {
+	sess db.Session
 }
 
-func GetDatabase() (Database, error) {
-	// TODO: MOVE CONFIG PARSING AND VALIDATINO TO SEPARATE MODULE
-	db, err := sql.Open("mysql",
-		fmt.Sprintf("%s:%s@tcp(%s)/next-dorm?tls=true&parseTime=true",
-			os.Getenv("DB_USER"), os.Getenv("DB_PASS"), os.Getenv("DB_HOST")))
-	if err != nil {
-		return nil, err
-	}
-
-	sess, err := mysql.New(db)
-	if err != nil {
-		return nil, err
-	}
-
-	return &PlanetScaleDB{
-		sess:  sess,
-		sqlDB: db,
-	}, nil
+func getPostDB(sess db.Session) *PostDB {
+	return &PostDB{sess}
 }
 
-func (psdb *PlanetScaleDB) GetSQLDB() *sql.DB {
-	return psdb.sqlDB
-}
-
-func (psdb *PlanetScaleDB) Close() error {
-	return psdb.sess.Close()
-}
-
-func (psdb *PlanetScaleDB) CreateCommunity(ctx context.Context, name string) (int64, error) {
-	res, err := psdb.sess.SQL().
+func (pdb *PostDB) CreateCommunity(ctx context.Context, name string) (int64, error) {
+	res, err := pdb.sess.SQL().
 		InsertInto("community").
 		Values(name).
 		Columns("name").
@@ -57,9 +31,9 @@ func (psdb *PlanetScaleDB) CreateCommunity(ctx context.Context, name string) (in
 	return res.LastInsertId()
 }
 
-func (psdb *PlanetScaleDB) CreatePost(ctx context.Context, post *CreatePost) (int64, error) {
+func (pdb *PostDB) CreatePost(ctx context.Context, post *db2.CreatePost) (int64, error) {
 	var postId int64
-	err := psdb.sess.TxContext(ctx, func(sess db.Session) error {
+	err := pdb.sess.TxContext(ctx, func(sess db.Session) error {
 		metadataId, err := insertContentMetadata(ctx, sess, post.CreateContentMetadata)
 		if err != nil {
 			return err
@@ -90,19 +64,19 @@ func (psdb *PlanetScaleDB) CreatePost(ctx context.Context, post *CreatePost) (in
 	return postId, err
 }
 
-func (psdb *PlanetScaleDB) MarkPostAsDeleted(ctx context.Context, id int64) error {
-	_, err := psdb.sess.SQL().ExecContext(ctx, db.Raw(`
+func (pdb *PostDB) MarkPostAsDeleted(ctx context.Context, id int64) error {
+	_, err := pdb.sess.SQL().ExecContext(ctx, db.Raw(`
 UPDATE post as p
 	INNER JOIN content_metadata as cm ON p.metadata_id = cm.id
-	WHERE p.id = ?
 	SET cm.status = 'DELETED', p.content=''
+	WHERE p.id = ?
 `, id))
 	return err
 }
 
-func (psdb *PlanetScaleDB) CreateComment(ctx context.Context, req *CreateComment) (int64, error) {
+func (pdb *PostDB) CreateComment(ctx context.Context, req *db2.CreateComment) (int64, error) {
 	var commentId int64
-	err := psdb.sess.TxContext(ctx, func(sess db.Session) error {
+	err := pdb.sess.TxContext(ctx, func(sess db.Session) error {
 		metadataId, err := insertContentMetadata(ctx, sess, req.CreateContentMetadata)
 		if err != nil {
 			return err
@@ -122,14 +96,24 @@ func (psdb *PlanetScaleDB) CreateComment(ctx context.Context, req *CreateComment
 	return commentId, err
 }
 
-func insertContentMetadata(ctx context.Context, sess db.Session, metadata *CreateContentMetadata) (id int64, err error) {
+func (pdb *PostDB) MarkCommentAsDeleted(ctx context.Context, id int64) error {
+	_, err := pdb.sess.SQL().ExecContext(ctx, db.Raw(`
+UPDATE comment as c
+	INNER JOIN content_metadata as cm ON c.metadata_id = cm.id
+	WHERE c.id = ?
+	SET cm.status = 'DELETED', c.content=''
+`, id))
+	return err
+}
+
+func insertContentMetadata(ctx context.Context, sess db.Session, metadata *db2.CreateContentMetadata) (id int64, err error) {
 	res, err := sess.SQL().
 		InsertInto("content_metadata").
 		Columns("creator_id", "creator_alias", "visibility").
 		Values(metadata.CreatorId, metadata.CreatorAlias, metadata.Visibility).
 		ExecContext(ctx)
 	if err != nil {
-		return 0, nil
+		return 0, err
 	}
 	return res.LastInsertId()
 }
@@ -146,6 +130,7 @@ type flattenedContentMetadata struct {
 	CreatorDisplayName string           `db:"display_name"`
 	CreatorAlias       string           `db:"creator_alias"`
 	Visibility         model.Visibility `db:"visibility"`
+	Status             model.Status     `db:"status"`
 	flattenedUserVote  `db:",inline"`
 	CreatedAt          time.Time `db:"created_at"`
 	UpdatedAt          time.Time `db:"updated_at"`
@@ -168,6 +153,7 @@ var contentMetadataColumns = []interface{}{
 	"cm.num_votes",
 	"cm.vote_total",
 	"cm.visibility",
+	"cm.status",
 	"cm.created_at",
 	"cm.updated_at",
 }
@@ -184,9 +170,9 @@ var voteColumns = []interface{}{
 	"v.value",
 }
 
-func (psdb *PlanetScaleDB) GetPostById(ctx context.Context, id int64, opts *PostQueryOpts) (*model.Post, error) {
+func (pdb *PostDB) GetPostById(ctx context.Context, id int64, opts *db2.PostQueryOpts) (*model.Post, error) {
 	var post flattenedPost
-	if err := psdb.sess.SQL().
+	if err := pdb.sess.SQL().
 		Select(append(postColumns, voteColumns...)...).
 		From("post AS p").
 		Join("content_metadata as cm").On("p.metadata_id = cm.id").
@@ -207,17 +193,17 @@ func (psdb *PlanetScaleDB) GetPostById(ctx context.Context, id int64, opts *Post
 	return buildPostFromFlattened(&post)
 }
 
-func (psdb *PlanetScaleDB) GetPosts(ctx context.Context, query *PostsListQuery) ([]*model.Post, error) {
+func (pdb *PostDB) GetPosts(ctx context.Context, query *db2.PostsListQuery) ([]*model.Post, error) {
 	var flattenedPosts []flattenedPost
-	if err := psdb.sess.SQL().
+	if err := pdb.sess.SQL().
 		Select(append(postColumns, voteColumns...)...).
 		From(
-			psdb.sess.SQL().
+			pdb.sess.SQL().
 				Select("p.id").
 				From("post as p").
 				Join("content_metadata as cm").On("p.metadata_id=cm.id").
 				LeftJoin("post_communities as pc").On("p.id=pc.post_id").
-				Where("(ISNULL(?) OR (cm.created_at < ? OR cm.created_at = ? AND (? = '' OR p.id < ?)))", query.From, query.From, query.From, query.Cursor, query.Cursor).
+				Where("(ISNULL(?) OR (cm.created_at < ? OR cm.created_at = ? AND (? = '' OR p.id < ?)))", query.From, query.From, query.From, query.LastId, query.LastId).
 				And("(ISNULL(?) OR pc.community_id IN ?)", query.CommunityIds, query.CommunityIds).
 				GroupBy("p.id")).
 		As("p_ids").
@@ -289,9 +275,9 @@ var commentColumns = append([]interface{}{
 	"c.content",
 }, contentMetadataColumns...)
 
-func (psdb *PlanetScaleDB) GetCommentById(ctx context.Context, id int64) (*model.Comment, error) {
+func (pdb *PostDB) GetCommentById(ctx context.Context, id int64) (*model.Comment, error) {
 	var comment flattenedComment
-	if err := psdb.sess.SQL().
+	if err := pdb.sess.SQL().
 		Select(commentColumns...).
 		From("comment as c").
 		Join("content_metadata as cm").On("c.metadata_id = cm.id").
@@ -307,9 +293,9 @@ func (psdb *PlanetScaleDB) GetCommentById(ctx context.Context, id int64) (*model
 	return buildCommentFromFlattened(&comment), nil
 }
 
-func (psdb *PlanetScaleDB) GetCommentForest(ctx context.Context, rootMetadataId int64, opts *CommentTreeQueryOpts) ([]*model.CommentTree, error) {
+func (pdb *PostDB) GetCommentForest(ctx context.Context, rootMetadataId int64, opts *db2.CommentTreeQueryOpts) ([]*model.CommentTree, error) {
 	var flattenedComments []flattenedComment
-	if err := psdb.sess.SQL().
+	if err := pdb.sess.SQL().
 		Select(append(commentColumns, voteColumns...)...).
 		From("comment as c").
 		Join("content_metadata as cm").On("c.metadata_id = cm.id").
@@ -317,6 +303,7 @@ func (psdb *PlanetScaleDB) GetCommentForest(ctx context.Context, rootMetadataId 
 		LeftJoin("vote as v").On("v.voter_id = ? AND cm.id = v.tgt_metadata_id", opts.VoteHistoryOf).
 		Join("person").On("cm.creator_id = person.firebase_id").
 		Where("root_metadata_id = ?", rootMetadataId).
+		OrderBy("created_at").
 		IteratorContext(ctx).
 		All(&flattenedComments); err != nil {
 		return nil, err
@@ -355,10 +342,15 @@ func buildContentMetadataFromFlattened(metadata *flattenedContentMetadata) *mode
 			User: &model.User{
 				Id:          metadata.CreatorId,
 				DisplayName: metadata.CreatorDisplayName,
+				Avatar:      util.Avatar(metadata.CreatorId),
 			},
-			Alias: metadata.CreatorAlias,
+			AnonymousUser: &model.AnonymousUser{
+				DisplayName: metadata.CreatorAlias,
+				Avatar:      util.Avatar(metadata.CreatorAlias),
+			},
 		},
 		UserVote:   vote,
+		Status:     metadata.Status,
 		NumVotes:   metadata.NumVotes,
 		VoteTotal:  metadata.VoteTotal,
 		Visibility: metadata.Visibility,
@@ -384,19 +376,19 @@ func buildCommentForestFromAdjList(adj map[int64][]*model.Comment, rootId int64)
 	for i, comment := range comments {
 		forest[i] = &model.CommentTree{
 			Comment:  comment,
-			Children: buildCommentForestFromAdjList(adj, comment.Id),
+			Children: buildCommentForestFromAdjList(adj, comment.ContentMetadata.Id),
 		}
 	}
 	return forest
 }
 
-func (psdb *PlanetScaleDB) GetCommunities(ctx context.Context, ids []int64) ([]*model.Community, error) {
+func (pdb *PostDB) GetCommunities(ctx context.Context, ids []int64) ([]*model.Community, error) {
 	var where []interface{}
 	if ids != nil {
 		where = []interface{}{"id in ?", ids}
 	}
 	var communities []*model.Community
-	return communities, psdb.sess.SQL().
+	return communities, pdb.sess.SQL().
 		Select("*").
 		From("community").
 		Where(where...).
@@ -404,8 +396,8 @@ func (psdb *PlanetScaleDB) GetCommunities(ctx context.Context, ids []int64) ([]*
 		All(&communities)
 }
 
-func (psdb *PlanetScaleDB) Vote(ctx context.Context, userId string, targetMetadataId int64, value int8) error {
-	return psdb.sess.TxContext(ctx, func(sess db.Session) error {
+func (pdb *PostDB) Vote(ctx context.Context, userId string, targetMetadataId int64, value int8) error {
+	return pdb.sess.TxContext(ctx, func(sess db.Session) error {
 		row, err := sess.SQL().QueryRowContext(ctx, `SELECT value FROM vote 
 																WHERE tgt_metadata_id = ? AND voter_id= ?
 															FOR UPDATE`,
@@ -473,8 +465,8 @@ func (psdb *PlanetScaleDB) Vote(ctx context.Context, userId string, targetMetada
 	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 }
 
-func (psdb *PlanetScaleDB) CreateReport(ctx context.Context, userId string, req *CreateReport) (int64, error) {
-	res, err := psdb.sess.SQL().
+func (pdb *PostDB) CreateReport(ctx context.Context, userId string, req *db2.CreateReport) (int64, error) {
+	res, err := pdb.sess.SQL().
 		InsertInto("report").
 		Columns("tgt_metadata_id", "creator_id", "reason").
 		Values(req.PostId, userId, req.Reason).
@@ -483,23 +475,4 @@ func (psdb *PlanetScaleDB) CreateReport(ctx context.Context, userId string, req 
 		return 0, err
 	}
 	return res.LastInsertId()
-}
-
-func (psdb *PlanetScaleDB) CreateUser(ctx context.Context, user *model.User) error {
-	_, err := psdb.sess.Collection("person").
-		Insert(user)
-	return err
-}
-
-func (psdb *PlanetScaleDB) GetUser(ctx context.Context, id string) (*model.User, error) {
-	var user model.User
-	if err := psdb.sess.SQL().
-		Select("*").
-		From("person").
-		Where("firebase_id = ?", id).
-		IteratorContext(ctx).
-		One(&user); err != nil {
-		return nil, err
-	}
-	return &user, nil
 }

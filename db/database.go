@@ -11,6 +11,7 @@ import (
 
 type Database interface {
 	PostDatabase
+	SubscriptionDatabase
 	UserDatabase
 	GetSQLDB() *sql.DB
 	Close() error
@@ -47,7 +48,7 @@ type PostQueryOpts struct {
 
 type PostsListQuery struct {
 	From         *time.Time
-	Cursor       string
+	LastId       string // TODO: Change to int64
 	CommunityIds []int64
 	*PostsListQueryOpts
 }
@@ -67,13 +68,19 @@ type PostDatabase interface {
 	CreatePost(ctx context.Context, req *CreatePost) (postId int64, err error)
 	CreateComment(ctx context.Context, req *CreateComment) (commentId int64, err error)
 	MarkPostAsDeleted(context.Context, int64) error
-	//MarkCommentAsDeleted(context.Context, int64) error
+	MarkCommentAsDeleted(context.Context, int64) error
 	GetPostById(context.Context, int64, *PostQueryOpts) (*model.Post, error)
 	GetPosts(context.Context, *PostsListQuery) ([]*model.Post, error)
 	GetCommentById(ctx context.Context, id int64) (*model.Comment, error)
 	GetCommentForest(ctx context.Context, rootMetadataId int64, opts *CommentTreeQueryOpts) ([]*model.CommentTree, error)
 	Vote(ctx context.Context, userId string, contentMetadataId int64, value int8) error
 	CreateReport(ctx context.Context, userId string, req *CreateReport) (reportId int64, err error)
+}
+
+type SubscriptionDatabase interface {
+	CreateSubForUser(context.Context, *model.Subscription) error
+	GetSubsForUser(ctx context.Context, userId string) ([]*model.Subscription, error)
+	DeleteSubForUser(context.Context, *model.Subscription) error
 }
 
 type UserDatabase interface {

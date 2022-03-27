@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"github.com/navbryce/next-dorm-be/db"
+	"github.com/navbryce/next-dorm-be/db/planetscale"
 	"github.com/navbryce/next-dorm-be/routes"
 	"log"
 	"os"
@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	db, err := db.GetDatabase()
+	db, err := planetscale.GetDatabase()
 	if err != nil {
 		log.Fatal("Received err when attempting to connect to DB", err)
 	}
@@ -48,7 +48,9 @@ func main() {
 	}))
 
 	routes.AddCommunityRoutes(&r.RouterGroup, db, authClient)
+	routes.AddFeedRoutes(&r.RouterGroup, db, authClient)
 	routes.AddPostRoutes(&r.RouterGroup, db, authClient)
+	routes.AddSubscriptionRoutes(&r.RouterGroup, db, authClient)
 	routes.AddUserRoutes(&r.RouterGroup, db, authClient)
 
 	if err := r.Run(); err != nil {

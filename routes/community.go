@@ -15,7 +15,7 @@ type communityRoutes struct {
 
 func AddCommunityRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
 	routes := communityRoutes{db}
-	posts := group.Group("/communities", middleware.Auth(db, authClient, &middleware.AuthConfig{}))
+	posts := group.Group("/communities", middleware.GenAuth(db, authClient, &middleware.AuthConfig{}))
 	posts.PUT("", util.HandlerWrapper(routes.createCommunity, &util.HandlerOpts{}))
 }
 
