@@ -63,7 +63,7 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 	}
 
 	// TODO: Enable multiple communities in the future?
-	if len(req.Communities) == 1 {
+	if len(req.Communities) != 1 {
 		return nil, &util.HTTPError{
 			Status:  http.StatusBadRequest,
 			Message: "post must belong to at exactly one community",
@@ -227,7 +227,7 @@ func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
 			Message: err.Error(),
 		}
 	}
-	posts, nextCursor, err := cursor.Posts(c, &app.PostCursorOpts{Limit: 2})
+	posts, nextCursor, err := cursor.Posts(c, &app.PostCursorOpts{Limit: 20})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
@@ -377,9 +377,9 @@ func (pr *postRoutes) mustGetCommentByIdStr(ctx context.Context, idStr string) (
 type FetchById = func(ctx context.Context, id int64) (entity interface{}, isNil bool, dbErr error)
 
 func mustGetByIdStr(ctx context.Context, fetch FetchById, entityType string, idStr string) (interface{}, *util.HTTPError) {
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		return nil, util.MalformedIdHTTPErr
+	id, httpErr := util.ParseId(idStr)
+	if httpErr != nil {
+		return nil, httpErr
 	}
 	entity, isNil, err := fetch(ctx, id)
 	if err != nil {

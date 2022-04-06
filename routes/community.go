@@ -16,7 +16,9 @@ type communityRoutes struct {
 func AddCommunityRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
 	routes := communityRoutes{db}
 	posts := group.Group("/communities", middleware.GenAuth(db, authClient, &middleware.AuthConfig{}))
-	posts.PUT("", util.HandlerWrapper(routes.createCommunity, &util.HandlerOpts{}))
+	posts.GET("", util.HandlerWrapper(routes.getCommunities, &util.HandlerOpts{}))
+	posts.GET("/:id", util.HandlerWrapper(routes.getCommunityById, &util.HandlerOpts{}))
+	//posts.PUT("", util.HandlerWrapper(routes.createCommunity, &util.HandlerOpts{}))
 }
 
 type createCommunityReq struct {
@@ -41,4 +43,27 @@ func (cr *communityRoutes) createCommunity(c *gin.Context) (interface{}, *util.H
 	return gin.H{
 		"id": id,
 	}, nil
+}
+
+func (cr *communityRoutes) getCommunityById(c *gin.Context) (interface{}, *util.HTTPError) {
+	id, httpErr := util.ParseId(c.Param("id"))
+	if httpErr != nil {
+		return nil, httpErr
+	}
+	communities, err := cr.db.GetCommunities(c, []int64{id})
+	if err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	if len(communities) == 0 {
+		return nil, nil
+	}
+	return communities[0], nil
+}
+
+func (cr *communityRoutes) getCommunities(c *gin.Context) (interface{}, *util.HTTPError) {
+	communities, err := cr.db.GetCommunities(c, nil)
+	if err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	return communities, nil
 }

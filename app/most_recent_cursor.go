@@ -33,7 +33,7 @@ func MostRecentCursorFromRaw(db db.Database, user *model.User, rawCursor RawCurs
 
 	rawCommunities, hasCommunities := rawCursor["communities"]
 	var communities []int64
-	if hasCommunities {
+	if hasCommunities && rawCommunities != nil {
 		var err error
 		communities, err = castCommunitiesFromCursor(rawCommunities)
 		if err != nil {

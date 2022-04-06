@@ -382,6 +382,7 @@ func buildCommentForestFromAdjList(adj map[int64][]*model.Comment, rootId int64)
 	return forest
 }
 
+// GetCommunities gets communities. nil ids gets all communities
 func (pdb *PostDB) GetCommunities(ctx context.Context, ids []int64) ([]*model.Community, error) {
 	var where []interface{}
 	if ids != nil {
