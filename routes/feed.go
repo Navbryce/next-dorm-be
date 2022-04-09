@@ -16,13 +16,15 @@ type feedRoutes struct {
 
 func AddFeedRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
 	routes := feedRoutes{db: db}
-	feeds := group.Group("/feeds", middleware.GenAuth(db, authClient, &middleware.AuthConfig{}))
-	feeds.POST("/", util.HandlerWrapper(routes.getFeed, &util.HandlerOpts{}))
+	feeds := group.Group("/feeds",
+		middleware.GenAuth(db, authClient, &middleware.AuthConfig{}),
+		middleware.RequireAccount())
+	feeds.POST("", util.HandlerWrapper(routes.getFeed, &util.HandlerOpts{}))
 }
 
 type getFeedReq struct {
-	Type   app.PostCursorType
-	Cursor map[string]interface{}
+	OrderBy app.PostCursorType     `json:"orderBy"`
+	Cursor  map[string]interface{} `json:"cursor"`
 }
 
 func (fr *feedRoutes) getFeed(c *gin.Context) (interface{}, *util.HTTPError) {
@@ -30,7 +32,7 @@ func (fr *feedRoutes) getFeed(c *gin.Context) (interface{}, *util.HTTPError) {
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
-	page, err := app.GetFeedForUser(c, fr.db, middleware.MustGetUser(c), req.Type, req.Cursor)
+	page, err := app.GetFeedForUser(c, fr.db, middleware.MustGetUser(c), req.OrderBy, req.Cursor)
 	if err != nil {
 		return nil, &util.HTTPError{
 			Status:  http.StatusBadRequest,

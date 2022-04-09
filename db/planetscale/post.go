@@ -408,7 +408,7 @@ func (pdb *PostDB) Vote(ctx context.Context, userId string, targetMetadataId int
 		}
 		var previousVoteValue int8
 		if err := row.Scan(&previousVoteValue); err != nil {
-			if err != sql.ErrNoRows {
+			if err != db.ErrNoMoreRows {
 				return err
 			}
 		}

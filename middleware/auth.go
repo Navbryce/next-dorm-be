@@ -49,6 +49,7 @@ func GenAuth(userDB db.UserDatabase, authClient *auth.Client, _ *AuthConfig) gin
 			return
 		}
 
+		// TODO: Make hasAccount a custom claim on ID token to short-circuit DB query
 		user, err := userDB.GetUser(c, token.UID)
 		if user == nil {
 			return

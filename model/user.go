@@ -4,8 +4,8 @@ package model
 type User struct {
 	Id          string `db:"firebase_id" json:"id"`
 	DisplayName string `db:"display_name" json:"displayName"`
-	IsAdmin     bool   `db:"isAdmin" json:"isAdmin"`
-	Avatar      string `json:"avatar"`
+	IsAdmin     bool   `db:"is_admin" json:"isAdmin"`
+	Avatar      string `db:"avatar" json:"avatar"`
 }
 
 // TODO: Separate DAO and data classes

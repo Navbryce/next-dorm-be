@@ -2,6 +2,8 @@ CREATE TABLE IF NOT EXISTS person
 (
     firebase_id  VARCHAR(36)  NOT NULL,
     display_name VARCHAR(300) NOT NULL,
+    avatar VARCHAR(1024) NOT NULL,
+    is_admin boolean NOT NULL DEFAULT FALSE,
     PRIMARY KEY (firebase_id),
     UNIQUE INDEX IDX_display_name (display_name)
 );

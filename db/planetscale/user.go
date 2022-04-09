@@ -28,6 +28,9 @@ func (udb *UserDB) GetUser(ctx context.Context, id string) (*model.User, error) 
 		Where("firebase_id = ?", id).
 		IteratorContext(ctx).
 		One(&user); err != nil {
+		if err == db.ErrNoMoreRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &user, nil
