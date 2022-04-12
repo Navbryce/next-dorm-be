@@ -37,7 +37,7 @@ func (sr *subscriptionRoutes) subscribe(c *gin.Context) (interface{}, *util.HTTP
 	}
 
 	// TODO: susceptible to a race condition
-	if fetchedCommunities, err := sr.db.GetCommunities(c, communityIds); err != nil {
+	if fetchedCommunities, err := sr.db.GetCommunities(c, communityIds, &db.GetCommunitiesQueryOpts{}); err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	} else if len(fetchedCommunities) != len(communityIds) {
 		return nil, &util.HTTPError{Status: http.StatusBadRequest, Message: "at least one of the communities does not exist"}

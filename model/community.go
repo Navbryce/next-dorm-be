@@ -6,3 +6,9 @@ type Community struct {
 	ParentId  int64  `db:"parent_id" json:"parentId"`
 	HasParent bool   `db:"has_parent" json:"hasParent"` // TODO: Add has parent
 }
+
+type CommunityWithSubStatus struct {
+	*Community
+	// TODO: Just change to subscription status?
+	IsSubscribed bool `db:"is_subscribed" json:"isSubscribed"`
+}

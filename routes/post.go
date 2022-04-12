@@ -70,7 +70,7 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 		}
 	}
 
-	communities, err := pr.db.GetCommunities(c, req.Communities)
+	communities, err := pr.db.GetCommunities(c, req.Communities, &db.GetCommunitiesQueryOpts{})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}

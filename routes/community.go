@@ -50,7 +50,9 @@ func (cr *communityRoutes) getCommunityById(c *gin.Context) (interface{}, *util.
 	if httpErr != nil {
 		return nil, httpErr
 	}
-	communities, err := cr.db.GetCommunities(c, []int64{id})
+	communities, err := cr.db.GetCommunities(c, []int64{id}, &db.GetCommunitiesQueryOpts{
+		ForUserId: middleware.GetUserIdMaybe(c),
+	})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
@@ -61,7 +63,9 @@ func (cr *communityRoutes) getCommunityById(c *gin.Context) (interface{}, *util.
 }
 
 func (cr *communityRoutes) getCommunities(c *gin.Context) (interface{}, *util.HTTPError) {
-	communities, err := cr.db.GetCommunities(c, nil)
+	communities, err := cr.db.GetCommunities(c, nil, &db.GetCommunitiesQueryOpts{
+		ForUserId: middleware.GetUserIdMaybe(c),
+	})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}

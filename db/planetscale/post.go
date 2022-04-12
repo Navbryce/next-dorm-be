@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	db2 "github.com/navbryce/next-dorm-be/db"
+	appDb "github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/model"
 	"github.com/navbryce/next-dorm-be/util"
 	"github.com/upper/db/v4"
@@ -31,7 +31,7 @@ func (pdb *PostDB) CreateCommunity(ctx context.Context, name string) (int64, err
 	return res.LastInsertId()
 }
 
-func (pdb *PostDB) CreatePost(ctx context.Context, post *db2.CreatePost) (int64, error) {
+func (pdb *PostDB) CreatePost(ctx context.Context, post *appDb.CreatePost) (int64, error) {
 	var postId int64
 	err := pdb.sess.TxContext(ctx, func(sess db.Session) error {
 		metadataId, err := insertContentMetadata(ctx, sess, post.CreateContentMetadata)
@@ -74,7 +74,7 @@ UPDATE post as p
 	return err
 }
 
-func (pdb *PostDB) CreateComment(ctx context.Context, req *db2.CreateComment) (int64, error) {
+func (pdb *PostDB) CreateComment(ctx context.Context, req *appDb.CreateComment) (int64, error) {
 	var commentId int64
 	err := pdb.sess.TxContext(ctx, func(sess db.Session) error {
 		metadataId, err := insertContentMetadata(ctx, sess, req.CreateContentMetadata)
@@ -106,7 +106,7 @@ UPDATE comment as c
 	return err
 }
 
-func insertContentMetadata(ctx context.Context, sess db.Session, metadata *db2.CreateContentMetadata) (id int64, err error) {
+func insertContentMetadata(ctx context.Context, sess db.Session, metadata *appDb.CreateContentMetadata) (id int64, err error) {
 	res, err := sess.SQL().
 		InsertInto("content_metadata").
 		Columns("creator_id", "creator_alias", "visibility").
@@ -170,7 +170,7 @@ var voteColumns = []interface{}{
 	"v.value",
 }
 
-func (pdb *PostDB) GetPostById(ctx context.Context, id int64, opts *db2.PostQueryOpts) (*model.Post, error) {
+func (pdb *PostDB) GetPostById(ctx context.Context, id int64, opts *appDb.PostQueryOpts) (*model.Post, error) {
 	var post flattenedPost
 	if err := pdb.sess.SQL().
 		Select(append(postColumns, voteColumns...)...).
@@ -193,7 +193,10 @@ func (pdb *PostDB) GetPostById(ctx context.Context, id int64, opts *db2.PostQuer
 	return buildPostFromFlattened(&post)
 }
 
-func (pdb *PostDB) GetPosts(ctx context.Context, query *db2.PostsListQuery) ([]*model.Post, error) {
+func (pdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([]*model.Post, error) {
+	if query.CommunityIds != nil && len(query.CommunityIds) == 0 {
+		return []*model.Post{}, nil
+	}
 	var flattenedPosts []flattenedPost
 	if err := pdb.sess.SQL().
 		Select(append(postColumns, voteColumns...)...).
@@ -204,7 +207,7 @@ func (pdb *PostDB) GetPosts(ctx context.Context, query *db2.PostsListQuery) ([]*
 				Join("content_metadata as cm").On("p.metadata_id=cm.id").
 				LeftJoin("post_communities as pc").On("p.id=pc.post_id").
 				Where("(ISNULL(?) OR (cm.created_at < ? OR cm.created_at = ? AND (? = '' OR p.id < ?)))", query.From, query.From, query.From, query.LastId, query.LastId).
-				And("(ISNULL(?) OR pc.community_id IN ?)", query.CommunityIds, query.CommunityIds).
+				And("(? OR pc.community_id IN ?)", query.CommunityIds == nil, query.CommunityIds).
 				GroupBy("p.id")).
 		As("p_ids").
 		Join("post as p").On("p_ids.id = p.id").
@@ -293,7 +296,7 @@ func (pdb *PostDB) GetCommentById(ctx context.Context, id int64) (*model.Comment
 	return buildCommentFromFlattened(&comment), nil
 }
 
-func (pdb *PostDB) GetCommentForest(ctx context.Context, rootMetadataId int64, opts *db2.CommentTreeQueryOpts) ([]*model.CommentTree, error) {
+func (pdb *PostDB) GetCommentForest(ctx context.Context, rootMetadataId int64, opts *appDb.CommentTreeQueryOpts) ([]*model.CommentTree, error) {
 	var flattenedComments []flattenedComment
 	if err := pdb.sess.SQL().
 		Select(append(commentColumns, voteColumns...)...).
@@ -383,18 +386,23 @@ func buildCommentForestFromAdjList(adj map[int64][]*model.Comment, rootId int64)
 }
 
 // GetCommunities gets communities. nil ids gets all communities
-func (pdb *PostDB) GetCommunities(ctx context.Context, ids []int64) ([]*model.Community, error) {
+func (pdb *PostDB) GetCommunities(ctx context.Context, ids []int64, opts *appDb.GetCommunitiesQueryOpts) ([]*model.CommunityWithSubStatus, error) {
 	var where []interface{}
 	if ids != nil {
 		where = []interface{}{"id in ?", ids}
 	}
-	var communities []*model.Community
-	return communities, pdb.sess.SQL().
-		Select("*").
-		From("community").
+	var communities []*model.CommunityWithSubStatus
+	if err := pdb.sess.SQL().
+		Select("c.id", "c.name", db.Raw("s.user_id IS NOT NULL AS is_subscribed")).
+		From("community as c").
+		// TODO: Change to only join if user id is provided
+		LeftJoin("subscription as s").On("c.id = s.community_id AND s.user_id = ?", opts.ForUserId).
 		Where(where...).
 		IteratorContext(ctx).
-		All(&communities)
+		All(&communities); err != nil {
+		return nil, err
+	}
+	return communities, nil
 }
 
 func (pdb *PostDB) Vote(ctx context.Context, userId string, targetMetadataId int64, value int8) error {
@@ -466,7 +474,7 @@ func (pdb *PostDB) Vote(ctx context.Context, userId string, targetMetadataId int
 	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 }
 
-func (pdb *PostDB) CreateReport(ctx context.Context, userId string, req *db2.CreateReport) (int64, error) {
+func (pdb *PostDB) CreateReport(ctx context.Context, userId string, req *appDb.CreateReport) (int64, error) {
 	res, err := pdb.sess.SQL().
 		InsertInto("report").
 		Columns("tgt_metadata_id", "creator_id", "reason").

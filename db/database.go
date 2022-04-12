@@ -17,6 +17,10 @@ type Database interface {
 	Close() error
 }
 
+type GetCommunitiesQueryOpts struct {
+	ForUserId string // will return subscription if it exists for user
+}
+
 type CreateContentMetadata struct {
 	CreatorId    string
 	Visibility   model.Visibility
@@ -64,7 +68,7 @@ type CommentTreeQueryOpts struct {
 
 type PostDatabase interface {
 	CreateCommunity(ctx context.Context, name string) (communityId int64, err error)
-	GetCommunities(ctx context.Context, ids []int64) ([]*model.Community, error)
+	GetCommunities(ctx context.Context, ids []int64, opts *GetCommunitiesQueryOpts) ([]*model.CommunityWithSubStatus, error)
 	CreatePost(ctx context.Context, req *CreatePost) (postId int64, err error)
 	CreateComment(ctx context.Context, req *CreateComment) (commentId int64, err error)
 	MarkPostAsDeleted(context.Context, int64) error

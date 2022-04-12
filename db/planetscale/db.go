@@ -26,6 +26,11 @@ func GetDatabase() (db2.Database, error) {
 		return nil, err
 	}
 
+	// TODO: Move to config
+	db.SetMaxIdleConns(50)
+	db.SetMaxOpenConns(50)
+	db.SetConnMaxIdleTime(0)
+
 	sess, err := mysql.New(db)
 	if err != nil {
 		return nil, err
