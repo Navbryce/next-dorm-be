@@ -50,10 +50,16 @@ type PostQueryOpts struct {
 	VoteHistoryOf string
 }
 
+type ByUser struct {
+	Id string
+}
+
 type PostsListQuery struct {
 	From         *time.Time
 	LastId       string // TODO: Change to int64
 	CommunityIds []int64
+	*ByUser
+	model.Visibility
 	*PostsListQueryOpts
 }
 

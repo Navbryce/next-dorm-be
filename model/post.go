@@ -35,7 +35,8 @@ type ContentMetadata struct {
 }
 
 func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
-	if user != nil && user.Id == cm.Creator.Id {
+	// TODO: Refactor into method checking if user is the person or an admin
+	if user != nil && (user.IsAdmin || user.Id == cm.Creator.Id) {
 		return cm
 	}
 
@@ -43,7 +44,7 @@ func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
 	case VisibilityHidden:
 		cm.Creator = &DisplayableUser{AnonymousUser: cm.Creator.AnonymousUser}
 	case VisibilityNormal:
-		cm.Creator = &DisplayableUser{User: cm.Creator.User}
+		cm.Creator = &DisplayableUser{User: cm.Creator.User.MakeDisplayableFor(user)}
 	}
 
 	return cm

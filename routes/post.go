@@ -200,7 +200,7 @@ func (pr *postRoutes) getPostById(c *gin.Context) (interface{}, *util.HTTPError)
 	if httpErr != nil {
 		return nil, httpErr
 	}
-	return post.MakeDisplayableFor(middleware.MustGetUser(c)), nil
+	return post.MakeDisplayableFor(middleware.GetUser(c)), nil
 }
 
 // TODO: Turn cursor into struct with fields for each type and add methods for each type. No enum

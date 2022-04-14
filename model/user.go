@@ -8,6 +8,17 @@ type User struct {
 	Avatar      string `db:"avatar" json:"avatar"`
 }
 
+func (u *User) MakeDisplayableFor(user *User) *User {
+	if user != nil && (user.IsAdmin || user.Id == u.Id) {
+		return user
+	}
+	return &User{
+		Id:          user.Id,
+		DisplayName: user.DisplayName,
+		Avatar:      user.Avatar,
+	}
+}
+
 // TODO: Separate DAO and data classes
 // TODO: Create ContentAuthor struct with a MakeDisplayable
 
@@ -16,6 +27,7 @@ type AnonymousUser struct {
 	Avatar      string `json:"avatar"`
 }
 
+// TODO: Rename: ContentAuthor?
 type DisplayableUser struct {
 	*AnonymousUser `json:"anonymousUser,omitempty"`
 	*User          `json:"user,omitempty"`

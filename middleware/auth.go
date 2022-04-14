@@ -123,7 +123,7 @@ func MustGetUser(c *gin.Context) *model.User {
 }
 
 func GetUserIdMaybe(c *gin.Context) (userId string) {
-	if token := MustGetToken(c); token != nil {
+	if token := GetToken(c); token != nil {
 		userId = token.UID
 	}
 	return userId

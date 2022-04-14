@@ -197,6 +197,23 @@ func (pdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([
 	if query.CommunityIds != nil && len(query.CommunityIds) == 0 {
 		return []*model.Post{}, nil
 	}
+	var optionalConditions []*db.RawExpr
+
+	// TODO: Convert to an interface
+	if query.From != nil {
+		optionalConditions = append(optionalConditions,
+			db.Raw("(cm.created_at < ? OR cm.created_at = ? AND (? = '' OR p.id < ?))",
+				query.From, query.From, query.LastId, query.LastId),
+		)
+	}
+	if query.CommunityIds != nil {
+		optionalConditions = append(optionalConditions, db.Raw("(pc.community_id IN ?)", query.CommunityIds))
+	}
+
+	if query.ByUser != nil {
+		optionalConditions = append(optionalConditions, db.Raw("(cm.creator_id = ?)", query.ByUser.Id))
+	}
+
 	var flattenedPosts []flattenedPost
 	if err := pdb.sess.SQL().
 		Select(append(postColumns, voteColumns...)...).
@@ -206,7 +223,7 @@ func (pdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([
 				From("post as p").
 				Join("content_metadata as cm").On("p.metadata_id=cm.id").
 				LeftJoin("post_communities as pc").On("p.id=pc.post_id").
-				Where("(ISNULL(?) OR (cm.created_at < ? OR cm.created_at = ? AND (? = '' OR p.id < ?)))", query.From, query.From, query.From, query.LastId, query.LastId).
+				Where(andExpressions(optionalConditions...)...).
 				And("(? OR pc.community_id IN ?)", query.CommunityIds == nil, query.CommunityIds).
 				GroupBy("p.id")).
 		As("p_ids").

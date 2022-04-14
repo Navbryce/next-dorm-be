@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/model"
@@ -13,14 +14,16 @@ import (
 type mostRecentCursor struct {
 	db          db.Database
 	user        *model.User
-	Communities []int64   `json:"communities,omitempty"`
-	LastDate    time.Time `json:"lastDate"`
-	LastId      string    `json:"lastId"`
+	Communities []int64    `json:"communities,omitempty"`
+	LastDate    time.Time  `json:"lastDate"`
+	LastId      string     `json:"lastId"`
+	ByUser      *db.ByUser `json:"byUser"`
 }
 
 // MostRecentCursorFromRaw assumes rawCursor is not nil.
 // TODO Move out of app logic since parsing?
-func MostRecentCursorFromRaw(db db.Database, user *model.User, rawCursor RawCursor) (*mostRecentCursor, error) {
+// TODO: Custom serialization logic?
+func MostRecentCursorFromRaw(appDb db.Database, user *model.User, rawCursor RawCursor) (*mostRecentCursor, error) {
 	lastDateStr, hasLastDate := rawCursor["lastDate"].(string)
 	lastDate := time.Now()
 	if hasLastDate {
@@ -41,14 +44,22 @@ func MostRecentCursorFromRaw(db db.Database, user *model.User, rawCursor RawCurs
 		}
 	}
 
+	// TODO: Make optional arguments consistent
 	lastId, _ := rawCursor["lastId"].(string)
 
+	var byUser *db.ByUser
+	if byUserRaw, hasByUser := rawCursor["byUser"]; hasByUser {
+		id := byUserRaw.(map[string]interface{})["id"].(string)
+		byUser = &db.ByUser{Id: id}
+	}
+
 	return &mostRecentCursor{
-		db:          db,
+		db:          appDb,
 		user:        user,
 		LastDate:    lastDate,
 		LastId:      lastId,
 		Communities: communities,
+		ByUser:      byUser,
 	}, nil
 }
 
@@ -66,6 +77,28 @@ func castCommunitiesFromCursor(raw interface{}) ([]int64, error) {
 	return communities, nil
 }
 
+type serializableByUser struct {
+	Id string `json:"id"`
+}
+
+func (mrpc *mostRecentCursor) MarshalJSON() ([]byte, error) {
+	var serByUser *serializableByUser
+	if mrpc.ByUser != nil {
+		serByUser = &serializableByUser{mrpc.ByUser.Id}
+	}
+	return json.Marshal(&struct {
+		Communities []int64             `json:"communities,omitempty"`
+		LastDate    time.Time           `json:"lastDate"`
+		LastId      string              `json:"lastId"`
+		ByUser      *serializableByUser `json:"byUser,omitempty"`
+	}{
+		Communities: mrpc.Communities,
+		LastDate:    mrpc.LastDate,
+		LastId:      mrpc.LastId,
+		ByUser:      serByUser,
+	})
+}
+
 func (mrpc *mostRecentCursor) Posts(ctx context.Context, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
 	voteHistoryOf := ""
 	if mrpc.user != nil {
@@ -76,6 +109,7 @@ func (mrpc *mostRecentCursor) Posts(ctx context.Context, cursorOpts *PostCursorO
 		From:         &mrpc.LastDate,
 		LastId:       mrpc.LastId,
 		CommunityIds: mrpc.Communities,
+		ByUser:       mrpc.ByUser,
 		PostsListQueryOpts: &db.PostsListQueryOpts{
 			// TODO: ADD configurable Limit for cursor (cursor opts in a separate struct?)
 			Limit:         cursorOpts.Limit,
@@ -98,5 +132,6 @@ func (mrpc *mostRecentCursor) buildCursorForNextPage(previousPosts []*model.Post
 		Communities: mrpc.Communities,
 		LastDate:    previousPosts[len(previousPosts)-1].CreatedAt,
 		LastId:      strconv.FormatInt(previousPosts[len(previousPosts)-1].Id, 10),
+		ByUser:      mrpc.ByUser,
 	}
 }

@@ -19,7 +19,8 @@ func AddUserRoutes(group *gin.RouterGroup, userDatabase db.UserDatabase, authCli
 	routes := userRoutes{userDatabase}
 	users := group.Group("/users", middleware.GenAuth(userDatabase, authClient, &middleware.AuthConfig{}), middleware.RequireToken())
 	users.PUT("", util.HandlerWrapper(routes.CreateUser, &util.HandlerOpts{}))
-	users.GET("", util.HandlerWrapper(routes.GetUser, &util.HandlerOpts{}))
+	users.GET("", util.HandlerWrapper(routes.GetCurrentUser, &util.HandlerOpts{}))
+	users.GET("/:userId", util.HandlerWrapper(routes.GetUser, &util.HandlerOpts{}))
 }
 
 type createUserReq struct {
@@ -64,10 +65,20 @@ func (ur userRoutes) CreateUser(c *gin.Context) (interface{}, *util.HTTPError) {
 	return user, nil
 }
 
-func (ur userRoutes) GetUser(c *gin.Context) (interface{}, *util.HTTPError) {
+func (ur userRoutes) GetCurrentUser(c *gin.Context) (interface{}, *util.HTTPError) {
 	user, err := ur.db.GetUser(c, middleware.MustGetToken(c).UID)
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
 	return user, nil
+}
+
+func (ur userRoutes) GetUser(c *gin.Context) (interface{}, *util.HTTPError) {
+	userId := c.Param("userId")
+	user, err := ur.db.GetUser(c, userId)
+	if err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	// TODO: Validate security of this endpoint
+	return user.MakeDisplayableFor(middleware.GetUser(c)), nil
 }
