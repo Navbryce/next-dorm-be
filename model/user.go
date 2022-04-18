@@ -13,9 +13,9 @@ func (u *User) MakeDisplayableFor(user *User) *User {
 		return user
 	}
 	return &User{
-		Id:          user.Id,
-		DisplayName: user.DisplayName,
-		Avatar:      user.Avatar,
+		Id:          u.Id,
+		DisplayName: u.DisplayName,
+		Avatar:      u.Avatar,
 	}
 }
 

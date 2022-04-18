@@ -23,15 +23,16 @@ type Vote struct {
 }
 
 type ContentMetadata struct {
-	Id         int64            `json:"-"`
-	Creator    *DisplayableUser `json:"creator"`
-	UserVote   *Vote            `json:"userVote"`
-	Status     `json:"status"`
-	Visibility Visibility `json:"visibility"`
-	NumVotes   int        `json:"numVotes"`
-	VoteTotal  int        `json:"voteTotal"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
+	Id             int64            `json:"-"`
+	Creator        *DisplayableUser `json:"creator"`
+	UserVote       *Vote            `json:"userVote"`
+	Status         `json:"status"`
+	Visibility     Visibility `json:"visibility"`
+	NumVotes       int        `json:"numVotes"`
+	VoteTotal      int        `json:"voteTotal"`
+	ImageBlobNames []string   `json:"imageBlobNames"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {

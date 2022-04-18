@@ -107,6 +107,11 @@ UPDATE comment as c
 }
 
 func insertContentMetadata(ctx context.Context, sess db.Session, metadata *appDb.CreateContentMetadata) (id int64, err error) {
+	imageIds, err := insertImages(ctx, sess, metadata.ImageBlobNames)
+	if err != nil {
+		return 0, err
+	}
+
 	res, err := sess.SQL().
 		InsertInto("content_metadata").
 		Columns("creator_id", "creator_alias", "visibility").
@@ -115,7 +120,44 @@ func insertContentMetadata(ctx context.Context, sess db.Session, metadata *appDb
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err = res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	batchInserter := sess.SQL().
+		InsertInto("content_image").
+		Columns("metadata_id", "image_id").
+		Batch(len(imageIds))
+	for _, imageId := range imageIds {
+		batchInserter.Values(id, imageId)
+	}
+	batchInserter.Done()
+	if err := batchInserter.Wait(); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// TODO: Move to separate file? Simplify image model if not extended upon
+func insertImages(ctx context.Context, sess db.Session, imageBlobNames []string) (ids []int64, err error) {
+	imageIds := make([]int64, len(imageBlobNames))
+	for i, imageBlobName := range imageBlobNames {
+		res, err := sess.SQL().
+			InsertInto("image").
+			Columns("blob_name").
+			Values(imageBlobName).
+			ExecContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return nil, err
+		}
+		imageIds[i] = id
+	}
+	return imageIds, nil
 }
 
 type flattenedUserVote struct {
@@ -132,6 +174,7 @@ type flattenedContentMetadata struct {
 	Visibility         model.Visibility `db:"visibility"`
 	Status             model.Status     `db:"status"`
 	flattenedUserVote  `db:",inline"`
+	ImageBlobNamesStr  string    `db:"image_blob_names"`
 	CreatedAt          time.Time `db:"created_at"`
 	UpdatedAt          time.Time `db:"updated_at"`
 }
@@ -163,6 +206,7 @@ var postColumns = append(contentMetadataColumns,
 		"p.id",
 		"p.title",
 		"p.content",
+		db.Raw("JSON_ARRAYAGG(image.blob_name) as image_blob_names"),
 		db.Raw("JSON_ARRAYAGG(pc.community_id) as community_ids"), db.Raw("JSON_ARRAYAGG(c.name) as community_names"),
 	}...)
 
@@ -181,6 +225,8 @@ func (pdb *PostDB) GetPostById(ctx context.Context, id int64, opts *appDb.PostQu
 		LeftJoin("vote as v").On("v.voter_id = ? AND cm.id = v.tgt_metadata_id", opts.VoteHistoryOf).
 		Join("person").On("cm.creator_id = person.firebase_id").
 		Join("community as c").On("pc.community_id = c.id").
+		LeftJoin("content_image as ci").On("cm.id = ci.metadata_id").
+		LeftJoin("image").On("ci.image_id = image.id").
 		Where("p.id = ?", id).
 		GroupBy("p.id", "cm.id", "person.firebase_id").
 		IteratorContext(ctx).
@@ -234,6 +280,8 @@ func (pdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([
 		Join("person").On("cm.creator_id = person.firebase_id").
 		LeftJoin("post_communities as pc").On("p.id = pc.post_id").
 		Join("community as c").On("pc.community_id = c.id").
+		LeftJoin("content_image as ci").On("cm.id = ci.metadata_id").
+		LeftJoin("image").On("ci.image_id = image.id").
 		OrderBy("cm.created_at DESC", "cm.id DESC").
 		GroupBy("p.id", "cm.id", "person.firebase_id").
 		Limit(int(query.Limit)).
@@ -270,9 +318,14 @@ func buildPostFromFlattened(post *flattenedPost) (*model.Post, error) {
 			Name: communityNames[i],
 		}
 	}
+	metadata, err := buildContentMetadataFromFlattened(&post.flattenedContentMetadata)
+	if err != nil {
+		return nil, err
+	}
+
 	return &model.Post{
 		Id:              post.Id,
-		ContentMetadata: buildContentMetadataFromFlattened(&post.flattenedContentMetadata),
+		ContentMetadata: metadata,
 		Title:           post.Title,
 		Content:         post.Content,
 		Communities:     communities,
@@ -310,7 +363,7 @@ func (pdb *PostDB) GetCommentById(ctx context.Context, id int64) (*model.Comment
 		}
 		return nil, err
 	}
-	return buildCommentFromFlattened(&comment), nil
+	return buildCommentFromFlattened(&comment)
 }
 
 func (pdb *PostDB) GetCommentForest(ctx context.Context, rootMetadataId int64, opts *appDb.CommentTreeQueryOpts) ([]*model.CommentTree, error) {
@@ -331,23 +384,31 @@ func (pdb *PostDB) GetCommentForest(ctx context.Context, rootMetadataId int64, o
 
 	comments := make([]*model.Comment, len(flattenedComments))
 	for i, flattenedComment := range flattenedComments {
-		comments[i] = buildCommentFromFlattened(&flattenedComment)
+		comment, err := buildCommentFromFlattened(&flattenedComment)
+		if err != nil {
+			return nil, err
+		}
+		comments[i] = comment
 	}
 
 	return buildCommentForest(rootMetadataId, comments), nil
 }
 
-func buildCommentFromFlattened(comment *flattenedComment) *model.Comment {
+func buildCommentFromFlattened(comment *flattenedComment) (*model.Comment, error) {
+	metadata, err := buildContentMetadataFromFlattened(&comment.flattenedContentMetadata)
+	if err != nil {
+		return nil, err
+	}
 	return &model.Comment{
-		ContentMetadata:  buildContentMetadataFromFlattened(&comment.flattenedContentMetadata),
 		Id:               comment.Id,
+		ContentMetadata:  metadata,
 		RootMetadataId:   comment.RootMetadataId,
 		ParentMetadataId: comment.ParentMetadataId,
 		Content:          comment.Content,
-	}
+	}, nil
 }
 
-func buildContentMetadataFromFlattened(metadata *flattenedContentMetadata) *model.ContentMetadata {
+func buildContentMetadataFromFlattened(metadata *flattenedContentMetadata) (*model.ContentMetadata, error) {
 	var vote *model.Vote
 	if metadata.flattenedUserVote.Value.Valid {
 		value, err := metadata.flattenedUserVote.Value.Value()
@@ -356,6 +417,19 @@ func buildContentMetadataFromFlattened(metadata *flattenedContentMetadata) *mode
 		}
 		vote = &model.Vote{Value: int8(value.(int64))}
 	}
+	var imageBlobNames = []string{} // make sure the array isn't nil
+	if len(metadata.ImageBlobNamesStr) > 0 {
+		if err := json.Unmarshal([]byte(metadata.ImageBlobNamesStr), &imageBlobNames); err != nil {
+			return nil, err
+		}
+		// remove empty blob names (nulls)
+		for i, blobName := range imageBlobNames {
+			if len(blobName) == 0 {
+				imageBlobNames = append(imageBlobNames[0:i], imageBlobNames[i+1:]...)
+			}
+		}
+	}
+
 	return &model.ContentMetadata{
 		Id: metadata.Id,
 		Creator: &model.DisplayableUser{
@@ -369,14 +443,15 @@ func buildContentMetadataFromFlattened(metadata *flattenedContentMetadata) *mode
 				Avatar:      util.Avatar(metadata.CreatorAlias),
 			},
 		},
-		UserVote:   vote,
-		Status:     metadata.Status,
-		NumVotes:   metadata.NumVotes,
-		VoteTotal:  metadata.VoteTotal,
-		Visibility: metadata.Visibility,
-		CreatedAt:  metadata.CreatedAt,
-		UpdatedAt:  metadata.UpdatedAt,
-	}
+		UserVote:       vote,
+		Status:         metadata.Status,
+		NumVotes:       metadata.NumVotes,
+		VoteTotal:      metadata.VoteTotal,
+		Visibility:     metadata.Visibility,
+		ImageBlobNames: imageBlobNames,
+		CreatedAt:      metadata.CreatedAt,
+		UpdatedAt:      metadata.UpdatedAt,
+	}, nil
 }
 
 func buildCommentForest(rootId int64, comments []*model.Comment) []*model.CommentTree {

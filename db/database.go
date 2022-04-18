@@ -22,9 +22,10 @@ type GetCommunitiesQueryOpts struct {
 }
 
 type CreateContentMetadata struct {
-	CreatorId    string
-	Visibility   model.Visibility
-	CreatorAlias string // only required if visibility is None
+	CreatorId      string
+	Visibility     model.Visibility
+	CreatorAlias   string // only required if visibility is None
+	ImageBlobNames []string
 }
 
 type CreatePost struct {

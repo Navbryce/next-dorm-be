@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS person
 (
-    firebase_id  VARCHAR(36)  NOT NULL,
-    display_name VARCHAR(300) NOT NULL,
-    avatar VARCHAR(1024) NOT NULL,
-    is_admin boolean NOT NULL DEFAULT FALSE,
+    firebase_id  VARCHAR(36)   NOT NULL,
+    display_name VARCHAR(300)  NOT NULL,
+    avatar       VARCHAR(1024) NOT NULL,
+    is_admin     boolean       NOT NULL DEFAULT FALSE,
     PRIMARY KEY (firebase_id),
     UNIQUE INDEX IDX_display_name (display_name)
 );
@@ -15,11 +15,19 @@ CREATE TABLE IF NOT EXISTS community
     PRIMARY KEY (id)
 );
 
+CREATE TABLE IF NOT EXISTS image
+(
+    id         INT           NOT NULL AUTO_INCREMENT,
+    blob_name  VARCHAR(2000) NOT NULL,
+    created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
+);
+
 CREATE TABLE IF NOT EXISTS subscription
 (
-    user_id VARCHAR(36) NOT NULL,
-    community_id MEDIUMINT NOT NULL,
-    PRIMARY KEY(user_id, community_id)
+    user_id      VARCHAR(36) NOT NULL,
+    community_id MEDIUMINT   NOT NULL,
+    PRIMARY KEY (user_id, community_id)
 );
 
 CREATE TABLE IF NOT EXISTS content_metadata
@@ -35,7 +43,14 @@ CREATE TABLE IF NOT EXISTS content_metadata
     updated_at    DATETIME                   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     INDEX IDX_BY_CREATED_AT (created_at DESC, id DESC),
-    INDeX IDX_CREATOR (creator_id)
+    INDEX IDX_CREATOR (creator_id)
+);
+
+CREATE TABLE IF NOT EXISTS content_image
+(
+    metadata_id INT  NOT NULL,
+    image_id INT NOT NULL,
+    PRIMARY KEY (metadata_id, image_id)
 );
 
 CREATE TABLE IF NOT EXISTS post

@@ -34,10 +34,11 @@ func AddPostRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Clie
 }
 
 type createPostReq struct {
-	Title       string           `json:"title"`
-	Content     string           `json:"content"`
-	Communities []int64          `json:"communities"`
-	Visibility  model.Visibility `json:"visibility"`
+	Title          string           `json:"title"`
+	Content        string           `json:"content"`
+	Communities    []int64          `json:"communities"`
+	Visibility     model.Visibility `json:"visibility"`
+	ImageBlobNames []string         `json:"imageBlobNames"`
 }
 
 func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) {
@@ -88,9 +89,10 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 		Content:     req.Content,
 		Communities: req.Communities,
 		CreateContentMetadata: &db.CreateContentMetadata{
-			CreatorId:    middleware.MustGetToken(c).UID,
-			Visibility:   req.Visibility,
-			CreatorAlias: creatorAlias,
+			CreatorId:      middleware.MustGetToken(c).UID,
+			Visibility:     req.Visibility,
+			CreatorAlias:   creatorAlias,
+			ImageBlobNames: req.ImageBlobNames,
 		},
 	})
 	if err != nil {
