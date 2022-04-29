@@ -1,18 +1,20 @@
 CREATE TABLE IF NOT EXISTS person
 (
     firebase_id  VARCHAR(36)   NOT NULL,
-    display_name VARCHAR(300)  NOT NULL,
+    display_name VARCHAR(300)  NOT NULL UNIQUE,
     avatar       VARCHAR(1024) NOT NULL,
     is_admin     boolean       NOT NULL DEFAULT FALSE,
-    PRIMARY KEY (firebase_id),
-    UNIQUE INDEX IDX_display_name (display_name)
+    PRIMARY KEY (firebase_id)
 );
 
 CREATE TABLE IF NOT EXISTS community
 (
-    id   MEDIUMINT    NOT NULL AUTO_INCREMENT,
-    name VARCHAR(500) NOT NULL,
-    PRIMARY KEY (id)
+    id        MEDIUMINT    NOT NULL AUTO_INCREMENT,
+    name      VARCHAR(500) NOT NULL UNIQUE,
+    parent_id MEDIUMINT,
+    created_at    DATETIME                   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX IDX_BY_PARENT (parent_id)
 );
 
 CREATE TABLE IF NOT EXISTS image
@@ -48,19 +50,19 @@ CREATE TABLE IF NOT EXISTS content_metadata
 
 CREATE TABLE IF NOT EXISTS content_image
 (
-    metadata_id INT  NOT NULL,
-    image_id INT NOT NULL,
+    metadata_id INT NOT NULL,
+    image_id    INT NOT NULL,
     PRIMARY KEY (metadata_id, image_id)
 );
 
 CREATE TABLE IF NOT EXISTS post
 (
-    id          INT          NOT NULL AUTO_INCREMENT,
-    metadata_id INT          NOT NULL,
-    title       VARCHAR(500) NOT NULL,
-    content     TEXT         NOT NULL,
-    PRIMARY KEY (id),
-    UNIQUE INDEX IDX_CONTENT_METADATA (metadata_id)
+    id            INT          NOT NULL AUTO_INCREMENT,
+    metadata_id   INT          NOT NULL UNIQUE,
+    title         VARCHAR(500) NOT NULL,
+    content       TEXT         NOT NULL,
+    comment_count INT          NOT NULL DEFAULT 0,
+    PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS post_communities

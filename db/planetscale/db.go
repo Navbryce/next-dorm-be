@@ -10,6 +10,7 @@ import (
 )
 
 type PlanetScaleDB struct {
+	*CommunityDB
 	*PostDB
 	*SubscriptionDB
 	*UserDB
@@ -37,6 +38,7 @@ func GetDatabase() (db2.Database, error) {
 	}
 
 	return &PlanetScaleDB{
+		CommunityDB:    getCommunityDb(sess),
 		PostDB:         getPostDB(sess),
 		SubscriptionDB: getSubscriptionDB(sess),
 		UserDB:         getUserDB(sess),

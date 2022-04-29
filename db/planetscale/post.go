@@ -18,22 +18,9 @@ type PostDB struct {
 func getPostDB(sess db.Session) *PostDB {
 	return &PostDB{sess}
 }
-
-func (pdb *PostDB) CreateCommunity(ctx context.Context, name string) (int64, error) {
-	res, err := pdb.sess.SQL().
-		InsertInto("community").
-		Values(name).
-		Columns("name").
-		ExecContext(ctx)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
-}
-
-func (pdb *PostDB) CreatePost(ctx context.Context, post *appDb.CreatePost) (int64, error) {
+func (cdb *PostDB) CreatePost(ctx context.Context, post *appDb.CreatePost) (int64, error) {
 	var postId int64
-	err := pdb.sess.TxContext(ctx, func(sess db.Session) error {
+	err := cdb.sess.TxContext(ctx, func(sess db.Session) error {
 		metadataId, err := insertContentMetadata(ctx, sess, post.CreateContentMetadata)
 		if err != nil {
 			return err
@@ -64,8 +51,47 @@ func (pdb *PostDB) CreatePost(ctx context.Context, post *appDb.CreatePost) (int6
 	return postId, err
 }
 
-func (pdb *PostDB) MarkPostAsDeleted(ctx context.Context, id int64) error {
-	_, err := pdb.sess.SQL().ExecContext(ctx, db.Raw(`
+// EditPost updates the post. Only updates title or content if they are non-empty.
+func (cdb *PostDB) EditPost(ctx context.Context, id int64, req *appDb.EditPost) error {
+	return cdb.sess.TxContext(ctx, func(sess db.Session) error {
+		// TODO: Can be made more efficient if not fetching metadata id
+		var metadataId struct {
+			Id int64 `db:"metadata_id"`
+		}
+		err := sess.SQL().
+			Select("metadata_id").
+			From("post").
+			Where("id = ?", id).
+			One(&metadataId)
+		if err != nil {
+			return err
+		}
+
+		err = editContentMetadata(ctx, sess, metadataId.Id, req.EditContentMetadata)
+		if err != nil {
+			return err
+		}
+
+		if len(req.Title) > 0 || len(req.Content) > 0 {
+			updater := sess.SQL().
+				Update("post")
+			if len(req.Title) > 0 {
+				updater = updater.Set("title = ?", req.Title)
+			}
+			if len(req.Content) > 0 {
+				updater = updater.Set("content = ?", req.Content)
+			}
+			if _, err := updater.ExecContext(ctx); err != nil {
+				return err
+			}
+		}
+
+		return err
+	}, nil)
+}
+
+func (cdb *PostDB) MarkPostAsDeleted(ctx context.Context, id int64) error {
+	_, err := cdb.sess.SQL().ExecContext(ctx, db.Raw(`
 UPDATE post as p
 	INNER JOIN content_metadata as cm ON p.metadata_id = cm.id
 	SET cm.status = 'DELETED', p.content=''
@@ -74,9 +100,9 @@ UPDATE post as p
 	return err
 }
 
-func (pdb *PostDB) CreateComment(ctx context.Context, req *appDb.CreateComment) (int64, error) {
+func (cdb *PostDB) CreateComment(ctx context.Context, req *appDb.CreateComment) (int64, error) {
 	var commentId int64
-	err := pdb.sess.TxContext(ctx, func(sess db.Session) error {
+	err := cdb.sess.TxContext(ctx, func(sess db.Session) error {
 		metadataId, err := insertContentMetadata(ctx, sess, req.CreateContentMetadata)
 		if err != nil {
 			return err
@@ -91,13 +117,21 @@ func (pdb *PostDB) CreateComment(ctx context.Context, req *appDb.CreateComment) 
 			return err
 		}
 		commentId, err = res.LastInsertId()
+
+		if _, err = sess.SQL().
+			Update("post").
+			Set("comment_count = comment_count + 1").
+			Where("metadata_id = ?", req.ParentMetadataId).
+			ExecContext(ctx); err != nil {
+			return err
+		}
 		return err
 	}, &sql.TxOptions{})
 	return commentId, err
 }
 
-func (pdb *PostDB) MarkCommentAsDeleted(ctx context.Context, id int64) error {
-	_, err := pdb.sess.SQL().ExecContext(ctx, db.Raw(`
+func (cdb *PostDB) MarkCommentAsDeleted(ctx context.Context, id int64) error {
+	_, err := cdb.sess.SQL().ExecContext(ctx, db.Raw(`
 UPDATE comment as c
 	INNER JOIN content_metadata as cm ON c.metadata_id = cm.id
 	WHERE c.id = ?
@@ -107,7 +141,6 @@ UPDATE comment as c
 }
 
 func insertContentMetadata(ctx context.Context, sess db.Session, metadata *appDb.CreateContentMetadata) (id int64, err error) {
-	imageIds, err := insertImages(ctx, sess, metadata.ImageBlobNames)
 	if err != nil {
 		return 0, err
 	}
@@ -125,22 +158,32 @@ func insertContentMetadata(ctx context.Context, sess db.Session, metadata *appDb
 		return 0, err
 	}
 
-	batchInserter := sess.SQL().
-		InsertInto("content_image").
-		Columns("metadata_id", "image_id").
-		Batch(len(imageIds))
-	for _, imageId := range imageIds {
-		batchInserter.Values(id, imageId)
+	return id, insertContentImagesFor(ctx, sess, id, metadata.ImageBlobNames)
+}
+
+func editContentMetadata(ctx context.Context, sess db.Session, metadataId int64, req *appDb.EditContentMetadata) error {
+	if _, err := sess.SQL().ExecContext(ctx, db.Raw(`
+		DELETE ci FROM content_image ci
+		JOIN image i ON ci.image_id = i.id
+		WHERE ci.metadata_id = ? AND JSON_CONTAINS(?, JSON_QUOTE(i.blob_name))
+	`, metadataId, req.ImageBlobNamesToRemove)); err != nil {
+		return err
 	}
-	batchInserter.Done()
-	if err := batchInserter.Wait(); err != nil {
-		return 0, err
+
+	err := insertContentImagesFor(ctx, sess, metadataId, req.ImageBlobNamesToAdd)
+	if err != nil {
+		return nil
 	}
-	return id, nil
+
+	_, err = sess.SQL().
+		Update("content_metadata").
+		Set("visibility = ?", req.Visibility).
+		ExecContext(ctx)
+	return err
 }
 
 // TODO: Move to separate file? Simplify image model if not extended upon
-func insertImages(ctx context.Context, sess db.Session, imageBlobNames []string) (ids []int64, err error) {
+func insertContentImagesFor(ctx context.Context, sess db.Session, metadataId int64, imageBlobNames []string) error {
 	imageIds := make([]int64, len(imageBlobNames))
 	for i, imageBlobName := range imageBlobNames {
 		res, err := sess.SQL().
@@ -149,15 +192,27 @@ func insertImages(ctx context.Context, sess db.Session, imageBlobNames []string)
 			Values(imageBlobName).
 			ExecContext(ctx)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		id, err := res.LastInsertId()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		imageIds[i] = id
 	}
-	return imageIds, nil
+
+	batchInserter := sess.SQL().
+		InsertInto("content_image").
+		Columns("metadata_id", "image_id").
+		Batch(len(imageIds))
+	for _, imageId := range imageIds {
+		batchInserter.Values(metadataId, imageId)
+	}
+	batchInserter.Done()
+	if err := batchInserter.Wait(); err != nil {
+		return err
+	}
+	return nil
 }
 
 type flattenedUserVote struct {
@@ -186,6 +241,7 @@ type flattenedPost struct {
 	Content                  string `db:"content"`
 	CommunityIdsStr          string `db:"community_ids"`
 	CommunityNamesJSONStr    string `db:"community_names"`
+	CommentCount             int64  `db:"comment_count"`
 }
 
 var contentMetadataColumns = []interface{}{
@@ -206,6 +262,7 @@ var postColumns = append(contentMetadataColumns,
 		"p.id",
 		"p.title",
 		"p.content",
+		"p.comment_count",
 		db.Raw("JSON_ARRAYAGG(image.blob_name) as image_blob_names"),
 		db.Raw("JSON_ARRAYAGG(pc.community_id) as community_ids"), db.Raw("JSON_ARRAYAGG(c.name) as community_names"),
 	}...)
@@ -214,9 +271,9 @@ var voteColumns = []interface{}{
 	"v.value",
 }
 
-func (pdb *PostDB) GetPostById(ctx context.Context, id int64, opts *appDb.PostQueryOpts) (*model.Post, error) {
+func (cdb *PostDB) GetPostById(ctx context.Context, id int64, opts *appDb.PostQueryOpts) (*model.Post, error) {
 	var post flattenedPost
-	if err := pdb.sess.SQL().
+	if err := cdb.sess.SQL().
 		Select(append(postColumns, voteColumns...)...).
 		From("post AS p").
 		Join("content_metadata as cm").On("p.metadata_id = cm.id").
@@ -239,7 +296,7 @@ func (pdb *PostDB) GetPostById(ctx context.Context, id int64, opts *appDb.PostQu
 	return buildPostFromFlattened(&post)
 }
 
-func (pdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([]*model.Post, error) {
+func (cdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([]*model.Post, error) {
 	if query.CommunityIds != nil && len(query.CommunityIds) == 0 {
 		return []*model.Post{}, nil
 	}
@@ -260,11 +317,15 @@ func (pdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([
 		optionalConditions = append(optionalConditions, db.Raw("(cm.creator_id = ?)", query.ByUser.Id))
 	}
 
+	if !query.IncludeDeleted {
+		optionalConditions = append(optionalConditions, db.Raw("(cm.status != 'DELETED')"))
+	}
+
 	var flattenedPosts []flattenedPost
-	if err := pdb.sess.SQL().
+	if err := cdb.sess.SQL().
 		Select(append(postColumns, voteColumns...)...).
 		From(
-			pdb.sess.SQL().
+			cdb.sess.SQL().
 				Select("p.id").
 				From("post as p").
 				Join("content_metadata as cm").On("p.metadata_id=cm.id").
@@ -329,6 +390,7 @@ func buildPostFromFlattened(post *flattenedPost) (*model.Post, error) {
 		Title:           post.Title,
 		Content:         post.Content,
 		Communities:     communities,
+		CommentCount:    post.CommentCount,
 	}, nil
 }
 
@@ -348,9 +410,9 @@ var commentColumns = append([]interface{}{
 	"c.content",
 }, contentMetadataColumns...)
 
-func (pdb *PostDB) GetCommentById(ctx context.Context, id int64) (*model.Comment, error) {
+func (cdb *PostDB) GetCommentById(ctx context.Context, id int64) (*model.Comment, error) {
 	var comment flattenedComment
-	if err := pdb.sess.SQL().
+	if err := cdb.sess.SQL().
 		Select(commentColumns...).
 		From("comment as c").
 		Join("content_metadata as cm").On("c.metadata_id = cm.id").
@@ -366,9 +428,9 @@ func (pdb *PostDB) GetCommentById(ctx context.Context, id int64) (*model.Comment
 	return buildCommentFromFlattened(&comment)
 }
 
-func (pdb *PostDB) GetCommentForest(ctx context.Context, rootMetadataId int64, opts *appDb.CommentTreeQueryOpts) ([]*model.CommentTree, error) {
+func (cdb *PostDB) GetCommentForest(ctx context.Context, rootMetadataId int64, opts *appDb.CommentTreeQueryOpts) ([]*model.CommentTree, error) {
 	var flattenedComments []flattenedComment
-	if err := pdb.sess.SQL().
+	if err := cdb.sess.SQL().
 		Select(append(commentColumns, voteColumns...)...).
 		From("comment as c").
 		Join("content_metadata as cm").On("c.metadata_id = cm.id").
@@ -476,29 +538,8 @@ func buildCommentForestFromAdjList(adj map[int64][]*model.Comment, rootId int64)
 	}
 	return forest
 }
-
-// GetCommunities gets communities. nil ids gets all communities
-func (pdb *PostDB) GetCommunities(ctx context.Context, ids []int64, opts *appDb.GetCommunitiesQueryOpts) ([]*model.CommunityWithSubStatus, error) {
-	var where []interface{}
-	if ids != nil {
-		where = []interface{}{"id in ?", ids}
-	}
-	var communities []*model.CommunityWithSubStatus
-	if err := pdb.sess.SQL().
-		Select("c.id", "c.name", db.Raw("s.user_id IS NOT NULL AS is_subscribed")).
-		From("community as c").
-		// TODO: Change to only join if user id is provided
-		LeftJoin("subscription as s").On("c.id = s.community_id AND s.user_id = ?", opts.ForUserId).
-		Where(where...).
-		IteratorContext(ctx).
-		All(&communities); err != nil {
-		return nil, err
-	}
-	return communities, nil
-}
-
-func (pdb *PostDB) Vote(ctx context.Context, userId string, targetMetadataId int64, value int8) error {
-	return pdb.sess.TxContext(ctx, func(sess db.Session) error {
+func (cdb *PostDB) Vote(ctx context.Context, userId string, targetMetadataId int64, value int8) error {
+	return cdb.sess.TxContext(ctx, func(sess db.Session) error {
 		row, err := sess.SQL().QueryRowContext(ctx, `SELECT value FROM vote 
 																WHERE tgt_metadata_id = ? AND voter_id= ?
 															FOR UPDATE`,
@@ -508,7 +549,7 @@ func (pdb *PostDB) Vote(ctx context.Context, userId string, targetMetadataId int
 		}
 		var previousVoteValue int8
 		if err := row.Scan(&previousVoteValue); err != nil {
-			if err != db.ErrNoMoreRows {
+			if err != sql.ErrNoRows {
 				return err
 			}
 		}
@@ -566,8 +607,8 @@ func (pdb *PostDB) Vote(ctx context.Context, userId string, targetMetadataId int
 	}, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 }
 
-func (pdb *PostDB) CreateReport(ctx context.Context, userId string, req *appDb.CreateReport) (int64, error) {
-	res, err := pdb.sess.SQL().
+func (cdb *PostDB) CreateReport(ctx context.Context, userId string, req *appDb.CreateReport) (int64, error) {
+	res, err := cdb.sess.SQL().
 		InsertInto("report").
 		Columns("tgt_metadata_id", "creator_id", "reason").
 		Values(req.PostId, userId, req.Reason).

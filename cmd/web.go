@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"github.com/navbryce/next-dorm-be/controllers"
 	"github.com/navbryce/next-dorm-be/db/planetscale"
 	"github.com/navbryce/next-dorm-be/routes"
+	"github.com/navbryce/next-dorm-be/services"
 	"log"
 	"os"
 	"time"
@@ -41,15 +43,25 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:  []string{"http://localhost:3000"},
-		AllowMethods:  []string{"GET", "POST", "PUT"},
+		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE"},
 		AllowHeaders:  []string{"Origin", "Authorization"},
 		ExposeHeaders: []string{"Content-Length"},
 		MaxAge:        12 * time.Hour,
 	}))
 
-	routes.AddCommunityRoutes(&r.RouterGroup, db, authClient)
+	userBucket, err := services.NewStorageBucket(context.Background(), app, "next-dorm-d5c03.appspot.com")
+	if err != nil {
+		log.Fatal("An error occurred while connecting to the user uploads bucket", err)
+	}
+
+	communityController, err := controllers.NewCommunityController(context.Background(), db)
+	if err != nil {
+		log.Fatal("An error occurred while initializing the community controller", err)
+	}
+
+	routes.AddCommunityRoutes(&r.RouterGroup, db, communityController, authClient)
 	routes.AddFeedRoutes(&r.RouterGroup, db, authClient)
-	routes.AddPostRoutes(&r.RouterGroup, db, authClient)
+	routes.AddPostRoutes(&r.RouterGroup, db, authClient, userBucket)
 	routes.AddSubscriptionRoutes(&r.RouterGroup, db, authClient)
 	routes.AddUserRoutes(&r.RouterGroup, db, authClient)
 

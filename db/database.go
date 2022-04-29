@@ -10,6 +10,7 @@ import (
 )
 
 type Database interface {
+	CommunityDatabase
 	PostDatabase
 	SubscriptionDatabase
 	UserDatabase
@@ -21,6 +22,11 @@ type GetCommunitiesQueryOpts struct {
 	ForUserId string // will return subscription if it exists for user
 }
 
+type CommunityDatabase interface {
+	CreateCommunity(ctx context.Context, name string) (communityId int64, err error)
+	GetCommunitiesByIds(ctx context.Context, id []int64, opts *GetCommunitiesQueryOpts) ([]*model.CommunityWithSubStatus, error)
+}
+
 type CreateContentMetadata struct {
 	CreatorId      string
 	Visibility     model.Visibility
@@ -28,11 +34,23 @@ type CreateContentMetadata struct {
 	ImageBlobNames []string
 }
 
+type EditContentMetadata struct {
+	ImageBlobNamesToAdd    []string
+	ImageBlobNamesToRemove []string
+	Visibility             model.Visibility
+}
+
 type CreatePost struct {
 	*CreateContentMetadata
 	Title       string
 	Content     string
 	Communities []int64
+}
+
+type EditPost struct {
+	*EditContentMetadata
+	Title   string
+	Content string
 }
 
 type CreateComment struct {
@@ -56,9 +74,10 @@ type ByUser struct {
 }
 
 type PostsListQuery struct {
-	From         *time.Time
-	LastId       string // TODO: Change to int64
-	CommunityIds []int64
+	From           *time.Time
+	LastId         string // TODO: Change to int64
+	CommunityIds   []int64
+	IncludeDeleted bool
 	*ByUser
 	model.Visibility
 	*PostsListQueryOpts
@@ -74,9 +93,8 @@ type CommentTreeQueryOpts struct {
 }
 
 type PostDatabase interface {
-	CreateCommunity(ctx context.Context, name string) (communityId int64, err error)
-	GetCommunities(ctx context.Context, ids []int64, opts *GetCommunitiesQueryOpts) ([]*model.CommunityWithSubStatus, error)
 	CreatePost(ctx context.Context, req *CreatePost) (postId int64, err error)
+	EditPost(ctx context.Context, id int64, req *EditPost) (err error)
 	CreateComment(ctx context.Context, req *CreateComment) (commentId int64, err error)
 	MarkPostAsDeleted(context.Context, int64) error
 	MarkCommentAsDeleted(context.Context, int64) error

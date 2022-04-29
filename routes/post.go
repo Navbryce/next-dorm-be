@@ -1,29 +1,33 @@
 package routes
 
 import (
-	"context"
 	"firebase.google.com/go/v4/auth"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/navbryce/next-dorm-be/app"
 	"github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/middleware"
 	"github.com/navbryce/next-dorm-be/model"
+	"github.com/navbryce/next-dorm-be/services"
 	"github.com/navbryce/next-dorm-be/util"
+	"log"
 	"net/http"
 	"strconv"
 )
 
 type postRoutes struct {
-	db db.Database
+	db                db.Database
+	userUploadsBucket *services.StorageBucket
 }
 
-func AddPostRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
-	routes := postRoutes{db}
+func AddPostRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client, userUploadsBucket *services.StorageBucket) {
+	routes := postRoutes{db, userUploadsBucket}
 	posts := group.Group("/posts", middleware.GenAuth(db, authClient, &middleware.AuthConfig{}))
 	posts.POST("",
 		util.HandlerWrapper(routes.getPosts, &util.HandlerOpts{}))
 	posts.PUT("", middleware.RequireAccount(), util.HandlerWrapper(routes.createPost, &util.HandlerOpts{}))
 	posts.GET("/:id", util.HandlerWrapper(routes.getPostById, &util.HandlerOpts{}))
+	posts.PUT("/:id", middleware.RequireAccount(), util.HandlerWrapper(routes.editPost, &util.HandlerOpts{}))
 	posts.DELETE("/:id", middleware.RequireAccount(), util.HandlerWrapper(routes.deletePost, &util.HandlerOpts{}))
 	posts.PUT("/:id/votes", middleware.RequireAccount(), util.HandlerWrapper(routes.voteForPost, &util.HandlerOpts{}))
 	posts.PUT("/:id/comments", middleware.RequireAccount(), util.HandlerWrapper(routes.createComment, &util.HandlerOpts{}))
@@ -71,12 +75,16 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 		}
 	}
 
-	communities, err := pr.db.GetCommunities(c, req.Communities, &db.GetCommunitiesQueryOpts{})
+	communities, err := pr.db.GetCommunitiesByIds(c, req.Communities, &db.GetCommunitiesQueryOpts{})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
 	if len(communities) != len(req.Communities) {
 		return nil, util.BuildDoesNotExistHTTPErr("community")
+	}
+
+	if err := pr.imagesMustExist(c, req.ImageBlobNames); err != nil {
+		return nil, err
 	}
 
 	creatorAlias := ""
@@ -103,6 +111,56 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 	}, nil
 }
 
+type editPostImages struct {
+	Added   []string `json:"added"`
+	Removed []string `json:"removed"`
+}
+
+type editPostReq struct {
+	// TODO: Change all fields to dif. Not just images
+	Title          string           `json:"title"`
+	Content        string           `json:"content"`
+	ImageBlobNames editPostImages   `json:"imageBlobNames"`
+	Visibility     model.Visibility `json:"visibility"`
+}
+
+func (pr *postRoutes) editPost(c *gin.Context) (interface{}, *util.HTTPError) {
+	// TODO: ADD OWNERSHIP CHECK FOR EDITING POST
+	// TODO: Optimize req to only send fields that are changed. send a diff
+	var req editPostReq
+	if err := c.BindJSON(&req); err != nil {
+		return nil, util.BuildJSONBindHTTPErr(err)
+	}
+
+	post, err := pr.mustGetPostByIdStr(c, c.Param("id"))
+	if err != nil {
+		return nil, err
+	}
+
+	if !post.CanEdit(middleware.MustGetUser(c)) {
+		// TODO: Create permission checking system where model just defines a permission object
+		return nil, util.BuildOperationForbidden("must be owner or admin")
+	}
+
+	if err := pr.imagesMustExist(c, req.ImageBlobNames.Added); err != nil {
+		return nil, err
+	}
+
+	if err := pr.db.EditPost(c, post.Id, &db.EditPost{
+		Title:   req.Title,
+		Content: req.Content,
+		EditContentMetadata: &db.EditContentMetadata{
+			ImageBlobNamesToAdd:    req.ImageBlobNames.Added,
+			ImageBlobNamesToRemove: req.ImageBlobNames.Removed,
+			Visibility:             req.Visibility,
+		},
+	},
+	); err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	return nil, nil
+}
+
 // TODO: Move logic to controllers
 func (pr *postRoutes) deletePost(c *gin.Context) (interface{}, *util.HTTPError) {
 	post, httpErr := pr.mustGetPostByIdStr(c, c.Param("id"))
@@ -110,7 +168,8 @@ func (pr *postRoutes) deletePost(c *gin.Context) (interface{}, *util.HTTPError) 
 		return nil, httpErr
 	}
 	if !post.CanDelete(middleware.MustGetUser(c)) {
-		return nil, util.BuildOperationForbidden("user is not the owner of the post")
+		// TODO: Switch to permission system
+		return nil, util.BuildOperationForbidden("user is not the owner of the post or an admin")
 	}
 	if err := pr.db.MarkPostAsDeleted(c, post.Id); err != nil {
 		return nil, util.BuildDbHTTPErr(err)
@@ -233,13 +292,9 @@ func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
-	displayablePosts := make([]*model.Post, len(posts))
-	for i, post := range posts {
-		displayablePosts[i] = post.MakeDisplayableFor(middleware.GetUser(c))
-	}
 
 	return gin.H{
-		"posts":      displayablePosts,
+		"posts":      model.MakePostsDisplayableFor(posts, middleware.GetUser(c)),
 		"nextCursor": nextCursor,
 	}, nil
 }
@@ -351,9 +406,11 @@ func (pr *postRoutes) report(c *gin.Context) (interface{}, *util.HTTPError) {
 }
 
 // mustGetPostByIdStr attempts to get post by id str
-func (pr *postRoutes) mustGetPostByIdStr(ctx context.Context, idStr string) (*model.Post, *util.HTTPError) {
-	if post, err := mustGetByIdStr(ctx, func(ctx context.Context, id int64) (entity interface{}, isNil bool, dbErr error) {
-		post, err := pr.db.GetPostById(ctx, id, &db.PostQueryOpts{})
+func (pr *postRoutes) mustGetPostByIdStr(ctx *gin.Context, idStr string) (*model.Post, *util.HTTPError) {
+	if post, err := mustGetByIdStr(ctx, func(ctx *gin.Context, id int64) (entity interface{}, isNil bool, dbErr error) {
+		post, err := pr.db.GetPostById(ctx, id, &db.PostQueryOpts{
+			VoteHistoryOf: middleware.GetUserIdMaybe(ctx),
+		})
 		return post, post == nil, err
 	}, "post", idStr); err != nil {
 		return nil, err
@@ -364,8 +421,8 @@ func (pr *postRoutes) mustGetPostByIdStr(ctx context.Context, idStr string) (*mo
 }
 
 // mustGetCommentByIdStr attempts to get post by id str
-func (pr *postRoutes) mustGetCommentByIdStr(ctx context.Context, idStr string) (*model.Comment, *util.HTTPError) {
-	if post, err := mustGetByIdStr(ctx, func(ctx context.Context, id int64) (entity interface{}, isNil bool, dbErr error) {
+func (pr *postRoutes) mustGetCommentByIdStr(ctx *gin.Context, idStr string) (*model.Comment, *util.HTTPError) {
+	if post, err := mustGetByIdStr(ctx, func(ctx *gin.Context, id int64) (entity interface{}, isNil bool, dbErr error) {
 		post, err := pr.db.GetCommentById(ctx, id)
 		return post, post == nil, err
 	}, "comment", idStr); err != nil {
@@ -376,9 +433,9 @@ func (pr *postRoutes) mustGetCommentByIdStr(ctx context.Context, idStr string) (
 
 }
 
-type FetchById = func(ctx context.Context, id int64) (entity interface{}, isNil bool, dbErr error)
+type FetchById = func(ctx *gin.Context, id int64) (entity interface{}, isNil bool, dbErr error)
 
-func mustGetByIdStr(ctx context.Context, fetch FetchById, entityType string, idStr string) (interface{}, *util.HTTPError) {
+func mustGetByIdStr(ctx *gin.Context, fetch FetchById, entityType string, idStr string) (interface{}, *util.HTTPError) {
 	id, httpErr := util.ParseId(idStr)
 	if httpErr != nil {
 		return nil, httpErr
@@ -390,4 +447,19 @@ func mustGetByIdStr(ctx context.Context, fetch FetchById, entityType string, idS
 		return nil, util.BuildDoesNotExistHTTPErr(entityType)
 	}
 	return entity, nil
+}
+
+func (pr *postRoutes) imagesMustExist(c *gin.Context, imageBlobNames []string) *util.HTTPError {
+	for _, blobName := range imageBlobNames {
+		if exists, err := pr.userUploadsBucket.Exists(c, blobName); err != nil {
+			log.Println("a storage error occurred", err)
+			return &util.HTTPError{
+				Status:  http.StatusInternalServerError,
+				Message: "a storage error occurred",
+			}
+		} else if !exists {
+			return util.BuildDoesNotExistHTTPErr(fmt.Sprintf("uploaded image %v", blobName))
+		}
+	}
+	return nil
 }

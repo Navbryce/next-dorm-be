@@ -3,6 +3,7 @@ package routes
 import (
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
+	"github.com/navbryce/next-dorm-be/controllers"
 	"github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/middleware"
 	"github.com/navbryce/next-dorm-be/util"
@@ -10,14 +11,15 @@ import (
 )
 
 type communityRoutes struct {
-	db db.Database
+	db         db.Database
+	controller *controllers.CommunityController
 }
 
-func AddCommunityRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Client) {
-	routes := communityRoutes{db}
+func AddCommunityRoutes(group *gin.RouterGroup, db db.Database, controller *controllers.CommunityController, authClient *auth.Client) {
+	routes := communityRoutes{db, controller}
 	posts := group.Group("/communities", middleware.GenAuth(db, authClient, &middleware.AuthConfig{}))
-	posts.GET("", util.HandlerWrapper(routes.getCommunities, &util.HandlerOpts{}))
 	posts.GET("/:id", util.HandlerWrapper(routes.getCommunityById, &util.HandlerOpts{}))
+	posts.GET("/:id/pos", util.HandlerWrapper(routes.getCommunityPos, &util.HandlerOpts{}))
 	//posts.PUT("", util.HandlerWrapper(routes.createCommunity, &util.HandlerOpts{}))
 }
 
@@ -50,24 +52,19 @@ func (cr *communityRoutes) getCommunityById(c *gin.Context) (interface{}, *util.
 	if httpErr != nil {
 		return nil, httpErr
 	}
-	communities, err := cr.db.GetCommunities(c, []int64{id}, &db.GetCommunitiesQueryOpts{
+	return cr.controller.GetCommunityById(c, id, &db.GetCommunitiesQueryOpts{
 		ForUserId: middleware.GetUserIdMaybe(c),
 	})
-	if err != nil {
-		return nil, util.BuildDbHTTPErr(err)
-	}
-	if len(communities) == 0 {
-		return nil, nil
-	}
-	return communities[0], nil
 }
 
-func (cr *communityRoutes) getCommunities(c *gin.Context) (interface{}, *util.HTTPError) {
-	communities, err := cr.db.GetCommunities(c, nil, &db.GetCommunitiesQueryOpts{
-		ForUserId: middleware.GetUserIdMaybe(c),
-	})
+func (cr *communityRoutes) getCommunityPos(c *gin.Context) (interface{}, *util.HTTPError) {
+	id, httpErr := util.ParseId(c.Param("id"))
+	if httpErr != nil {
+		return nil, httpErr
+	}
+	communityPos, err := cr.controller.GetCommunityPos(c, id)
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
-	return communities, nil
+	return communityPos, nil
 }

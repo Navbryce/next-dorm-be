@@ -6,6 +6,7 @@ import (
 	"github.com/navbryce/next-dorm-be/app"
 	"github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/middleware"
+	"github.com/navbryce/next-dorm-be/model"
 	"github.com/navbryce/next-dorm-be/util"
 	"net/http"
 )
@@ -45,7 +46,7 @@ func (fr *feedRoutes) getFeed(c *gin.Context) (interface{}, *util.HTTPError) {
 	}
 
 	return &gin.H{
-		"posts":  posts,
+		"posts":  model.MakePostsDisplayableFor(posts, middleware.MustGetUser(c)),
 		"cursor": cursor,
 	}, nil
 }

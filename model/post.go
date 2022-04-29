@@ -36,13 +36,12 @@ type ContentMetadata struct {
 }
 
 func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
-	// TODO: Refactor into method checking if user is the person or an admin
-	if user != nil && (user.IsAdmin || user.Id == cm.Creator.Id) {
-		return cm
-	}
-
 	switch cm.Visibility {
 	case VisibilityHidden:
+		// TODO: Refactor into method checking if user is the person or an admin
+		if user != nil && (user.IsAdmin || user.Id == cm.Creator.Id) {
+			return cm
+		}
 		cm.Creator = &DisplayableUser{AnonymousUser: cm.Creator.AnonymousUser}
 	case VisibilityNormal:
 		cm.Creator = &DisplayableUser{User: cm.Creator.User.MakeDisplayableFor(user)}
@@ -51,22 +50,35 @@ func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
 	return cm
 }
 
+func (cm *ContentMetadata) CanEdit(user *User) bool {
+	return user.Id == cm.Creator.Id || user.IsAdmin
+}
+
 func (cm *ContentMetadata) CanDelete(user *User) bool {
-	return user.Id == cm.Creator.Id
+	return user.Id == cm.Creator.Id || user.IsAdmin
 }
 
 type Post struct {
 	*ContentMetadata
-	Id          int64        `json:"id"`
-	Title       string       `json:"title"`
-	Content     string       `json:"content"`
-	Communities []*Community `json:"communities"`
+	Id           int64        `json:"id"`
+	Title        string       `json:"title"`
+	Content      string       `json:"content"`
+	Communities  []*Community `json:"communities"`
+	CommentCount int64        `json:"commentCount"`
 }
 
 // MakeDisplayableFor mutates the object
 func (p *Post) MakeDisplayableFor(user *User) *Post {
 	p.ContentMetadata = p.ContentMetadata.MakeDisplayableFor(user)
 	return p
+}
+
+func MakePostsDisplayableFor(posts []*Post, user *User) []*Post {
+	displayablePosts := make([]*Post, len(posts))
+	for i, post := range posts {
+		displayablePosts[i] = post.MakeDisplayableFor(user)
+	}
+	return displayablePosts
 }
 
 type Comment struct {

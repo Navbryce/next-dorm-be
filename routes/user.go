@@ -17,10 +17,14 @@ type userRoutes struct {
 
 func AddUserRoutes(group *gin.RouterGroup, userDatabase db.UserDatabase, authClient *auth.Client) {
 	routes := userRoutes{userDatabase}
-	users := group.Group("/users", middleware.GenAuth(userDatabase, authClient, &middleware.AuthConfig{}), middleware.RequireToken())
-	users.PUT("", util.HandlerWrapper(routes.CreateUser, &util.HandlerOpts{}))
-	users.GET("", util.HandlerWrapper(routes.GetCurrentUser, &util.HandlerOpts{}))
-	users.GET("/:userId", util.HandlerWrapper(routes.GetUser, &util.HandlerOpts{}))
+	users := group.Group("/users", middleware.GenAuth(userDatabase, authClient, &middleware.AuthConfig{}))
+	users.GET("/:userId", util.HandlerWrapper(routes.GetPublicUser, &util.HandlerOpts{}))
+	users.PUT("",
+		middleware.RequireToken(),
+		util.HandlerWrapper(routes.CreateUser, &util.HandlerOpts{}))
+	users.GET("",
+		middleware.RequireToken(),
+		util.HandlerWrapper(routes.GetCurrentUser, &util.HandlerOpts{}))
 }
 
 type createUserReq struct {
@@ -73,7 +77,7 @@ func (ur userRoutes) GetCurrentUser(c *gin.Context) (interface{}, *util.HTTPErro
 	return user, nil
 }
 
-func (ur userRoutes) GetUser(c *gin.Context) (interface{}, *util.HTTPError) {
+func (ur userRoutes) GetPublicUser(c *gin.Context) (interface{}, *util.HTTPError) {
 	userId := c.Param("userId")
 	user, err := ur.db.GetUser(c, userId)
 	if err != nil {
