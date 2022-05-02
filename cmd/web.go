@@ -60,7 +60,6 @@ func main() {
 	}
 
 	routes.AddCommunityRoutes(&r.RouterGroup, db, communityController, authClient)
-	routes.AddFeedRoutes(&r.RouterGroup, db, authClient)
 	routes.AddPostRoutes(&r.RouterGroup, db, authClient, userBucket)
 	routes.AddSubscriptionRoutes(&r.RouterGroup, db, authClient)
 	routes.AddUserRoutes(&r.RouterGroup, db, authClient)

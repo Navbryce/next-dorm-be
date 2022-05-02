@@ -130,12 +130,48 @@ func (cdb *PostDB) CreateComment(ctx context.Context, req *appDb.CreateComment) 
 	return commentId, err
 }
 
+// EditComment edits the comment. currently ignores the images params
+func (cdb *PostDB) EditComment(ctx context.Context, id int64, req *appDb.EditComment) error {
+	err := cdb.sess.TxContext(ctx, func(sess db.Session) error {
+		// TODO: Can be made more efficient if not fetching metadata id
+		var metadataId struct {
+			Id int64 `db:"metadata_id"`
+		}
+		err := sess.SQL().
+			Select("metadata_id").
+			From("comment").
+			Where("id = ?", id).
+			One(&metadataId)
+		if err != nil {
+			return err
+		}
+
+		err = editContentMetadata(ctx, sess, metadataId.Id, &appDb.EditContentMetadata{
+			Visibility: req.Visibility,
+		})
+		if err != nil {
+			return err
+		}
+
+		if len(req.Content) > 0 {
+			if _, err := sess.SQL().
+				Update("comment").
+				Set("content = ?", req.Content).
+				ExecContext(ctx); err != nil {
+				return nil
+			}
+		}
+		return err
+	}, &sql.TxOptions{})
+	return err
+}
+
 func (cdb *PostDB) MarkCommentAsDeleted(ctx context.Context, id int64) error {
 	_, err := cdb.sess.SQL().ExecContext(ctx, db.Raw(`
 UPDATE comment as c
 	INNER JOIN content_metadata as cm ON c.metadata_id = cm.id
-	WHERE c.id = ?
 	SET cm.status = 'DELETED', c.content=''
+	WHERE c.id = ?
 `, id))
 	return err
 }

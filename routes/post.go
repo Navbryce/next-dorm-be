@@ -32,6 +32,7 @@ func AddPostRoutes(group *gin.RouterGroup, db db.Database, authClient *auth.Clie
 	posts.PUT("/:id/votes", middleware.RequireAccount(), util.HandlerWrapper(routes.voteForPost, &util.HandlerOpts{}))
 	posts.PUT("/:id/comments", middleware.RequireAccount(), util.HandlerWrapper(routes.createComment, &util.HandlerOpts{}))
 	posts.GET("/:id/comments", util.HandlerWrapper(routes.getComments, &util.HandlerOpts{}))
+	posts.PUT("/:id/comments/:comment-id", middleware.RequireAccount(), util.HandlerWrapper(routes.editComment, &util.HandlerOpts{}))
 	posts.DELETE("/:id/comments/:comment-id", middleware.RequireAccount(), util.HandlerWrapper(routes.deleteComment, &util.HandlerOpts{}))
 	posts.PUT("/:id/comments/:comment-id/votes", middleware.RequireAccount(), util.HandlerWrapper(routes.voteForComment, &util.HandlerOpts{}))
 	posts.PUT("/:id/reports", middleware.RequireAccount(), util.HandlerWrapper(routes.report, &util.HandlerOpts{}))
@@ -137,7 +138,7 @@ func (pr *postRoutes) editPost(c *gin.Context) (interface{}, *util.HTTPError) {
 		return nil, err
 	}
 
-	if !post.CanEdit(middleware.MustGetUser(c)) {
+	if !post.CanEdit(middleware.GetUser(c)) {
 		// TODO: Create permission checking system where model just defines a permission object
 		return nil, util.BuildOperationForbidden("must be owner or admin")
 	}
@@ -241,6 +242,40 @@ func (pr *postRoutes) createComment(c *gin.Context) (interface{}, *util.HTTPErro
 	}, nil
 }
 
+// TODO: Factor out editMetadata into its own struct?
+type editCommentReq struct {
+	Content    string           `json:"content"`
+	Visibility model.Visibility `json:"visibility"`
+}
+
+func (pr *postRoutes) editComment(c *gin.Context) (interface{}, *util.HTTPError) {
+	// TODO: We're not using post id. Keep it?
+	var req editCommentReq
+	if err := c.BindJSON(&req); err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	comment, httpErr := pr.mustGetCommentByIdStr(c, c.Param("comment-id"))
+	if httpErr != nil {
+		return nil, httpErr
+	}
+	// TODO: Check if comment exists under post?
+	if !comment.CanEdit(middleware.MustGetUser(c)) {
+		return nil, util.BuildOperationForbidden("user is not owner of the comment or admin")
+	}
+	if comment.Status == model.StatusDeleted {
+		return nil, util.BuildOperationForbidden("comment is deleted")
+	}
+	if err := pr.db.EditComment(c, comment.Id, &db.EditComment{
+		EditContentMetadata: &db.EditContentMetadata{
+			Visibility: req.Visibility,
+		},
+		Content: req.Content,
+	}); err != nil {
+		return nil, util.BuildDbHTTPErr(err)
+	}
+	return nil, nil
+}
+
 func (pr *postRoutes) deleteComment(c *gin.Context) (interface{}, *util.HTTPError) {
 	comment, httpErr := pr.mustGetCommentByIdStr(c, c.Param("comment-id"))
 	if httpErr != nil {
@@ -266,8 +301,7 @@ func (pr *postRoutes) getPostById(c *gin.Context) (interface{}, *util.HTTPError)
 
 // TODO: Turn cursor into struct with fields for each type and add methods for each type. No enum
 type getPostsReq struct {
-	OrderBy app.PostCursorType `json:"orderBy"`
-	Cursor  app.RawCursor      `json:"cursor"`
+	app.TaggedUnionCursor
 }
 
 func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
@@ -275,20 +309,9 @@ func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
-	if req.OrderBy != app.PostCursorTypeMostRecent {
-		return nil, &util.HTTPError{
-			Status:  http.StatusBadRequest,
-			Message: "Invalid order by",
-		}
-	}
-	cursor, err := app.MostRecentCursorFromRaw(pr.db, middleware.GetUser(c), req.Cursor)
-	if err != nil {
-		return nil, &util.HTTPError{
-			Status:  http.StatusBadRequest,
-			Message: err.Error(),
-		}
-	}
-	posts, nextCursor, err := cursor.Posts(c, &app.PostCursorOpts{Limit: 20})
+
+	cursor := req.PostCursor
+	posts, nextCursor, err := cursor.Posts(c, pr.db, middleware.GetUser(c), &app.PostCursorOpts{Limit: 20})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}

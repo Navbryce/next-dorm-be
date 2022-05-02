@@ -2,10 +2,9 @@ package app
 
 import (
 	"context"
+	appDb "github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/model"
 )
-
-type RawCursor = map[string]interface{}
 
 type PostCursorOpts struct {
 	Limit int16
@@ -13,11 +12,12 @@ type PostCursorOpts struct {
 
 // TODO: Go generics?
 type PostCursor interface {
-	Posts(ctx context.Context, opts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error)
+	Posts(ctx context.Context, db appDb.Database, user *model.User, opts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error)
 }
 
 type PostCursorType string
 
 const (
-	PostCursorTypeMostRecent PostCursorType = "MOST_RECENT"
+	PostCursorTypeMostRecent       PostCursorType = "MOST_RECENT"
+	PostCursorTypeSubbedMostRecent PostCursorType = "SUBBED_MOST_RECENT"
 )

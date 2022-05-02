@@ -50,10 +50,12 @@ func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
 	return cm
 }
 
+// TODO: move this logic into controller?
 func (cm *ContentMetadata) CanEdit(user *User) bool {
 	return user.Id == cm.Creator.Id || user.IsAdmin
 }
 
+// TODO: Move this logic into controller?
 func (cm *ContentMetadata) CanDelete(user *User) bool {
 	return user.Id == cm.Creator.Id || user.IsAdmin
 }

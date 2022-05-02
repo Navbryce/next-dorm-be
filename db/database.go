@@ -60,6 +60,11 @@ type CreateComment struct {
 	Content          string
 }
 
+type EditComment struct {
+	*EditContentMetadata
+	Content string
+}
+
 type CreateReport struct {
 	PostId int64
 	Reason string
@@ -94,8 +99,9 @@ type CommentTreeQueryOpts struct {
 
 type PostDatabase interface {
 	CreatePost(ctx context.Context, req *CreatePost) (postId int64, err error)
-	EditPost(ctx context.Context, id int64, req *EditPost) (err error)
+	EditPost(ctx context.Context, id int64, req *EditPost) error
 	CreateComment(ctx context.Context, req *CreateComment) (commentId int64, err error)
+	EditComment(ctx context.Context, id int64, req *EditComment) error
 	MarkPostAsDeleted(context.Context, int64) error
 	MarkCommentAsDeleted(context.Context, int64) error
 	GetPostById(context.Context, int64, *PostQueryOpts) (*model.Post, error)
