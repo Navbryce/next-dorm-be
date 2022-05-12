@@ -5,6 +5,13 @@ import (
 	"errors"
 )
 
+const (
+	PostCursorTypeMostRecent        PostCursorType = "MOST_RECENT"
+	PostCursorTypeSubbedMostRecent  PostCursorType = "SUBBED_MOST_RECENT"
+	PostCursorTypeMostPopular       PostCursorType = "MOST_POPULAR"
+	PostCursorTypeSubbedMostPopular PostCursorType = "SUBBED_MOST_POPULAR"
+)
+
 var UnknownCursorTypeErr = errors.New("unknown cursor type")
 
 type TaggedUnionCursor struct {
@@ -32,6 +39,10 @@ func (tuc *TaggedUnionCursor) UnmarshalJSON(data []byte) error {
 		cursorRef = &MostRecentCursor{}
 	case PostCursorTypeSubbedMostRecent:
 		cursorRef = &SubbedMostRecentCursor{}
+	case PostCursorTypeMostPopular:
+		cursorRef = &MostPopularCursor{}
+	case PostCursorTypeSubbedMostPopular:
+		cursorRef = &SubbedMostPopularCursor{}
 	default:
 		return UnknownCursorTypeErr
 	}

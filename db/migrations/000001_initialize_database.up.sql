@@ -1,18 +1,17 @@
 CREATE TABLE IF NOT EXISTS person
 (
-    firebase_id  VARCHAR(36)   NOT NULL,
-    display_name VARCHAR(300)  NOT NULL UNIQUE,
-    avatar       VARCHAR(1024) NOT NULL,
-    is_admin     boolean       NOT NULL DEFAULT FALSE,
+    firebase_id      VARCHAR(36)   NOT NULL,
+    display_name     VARCHAR(300)  NOT NULL UNIQUE,
+    is_admin         BOOLEAN       NOT NULL DEFAULT FALSE,
     PRIMARY KEY (firebase_id)
 );
 
 CREATE TABLE IF NOT EXISTS community
 (
-    id        MEDIUMINT    NOT NULL AUTO_INCREMENT,
-    name      VARCHAR(500) NOT NULL UNIQUE,
-    parent_id MEDIUMINT,
-    created_at    DATETIME                   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id         MEDIUMINT    NOT NULL AUTO_INCREMENT,
+    name       VARCHAR(500) NOT NULL UNIQUE,
+    parent_id  MEDIUMINT,
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     INDEX IDX_BY_PARENT (parent_id)
 );
@@ -20,7 +19,7 @@ CREATE TABLE IF NOT EXISTS community
 CREATE TABLE IF NOT EXISTS image
 (
     id         INT           NOT NULL AUTO_INCREMENT,
-    blob_name  VARCHAR(2000) NOT NULL,
+    blob_name  VARCHAR(2048) NOT NULL,
     created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 );
@@ -45,6 +44,7 @@ CREATE TABLE IF NOT EXISTS content_metadata
     updated_at    DATETIME                   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     INDEX IDX_BY_CREATED_AT (created_at DESC, id DESC),
+    INDEX IDX_VOTE_TOTAL (vote_total DESC, id DESC),
     INDEX IDX_CREATOR (creator_id)
 );
 

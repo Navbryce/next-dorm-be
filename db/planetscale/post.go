@@ -145,9 +145,10 @@ func (cdb *PostDB) EditComment(ctx context.Context, id int64, req *appDb.EditCom
 		if err != nil {
 			return err
 		}
-
+		// TODO: Don't let images be edited, so make a new EditContentMetadata
 		err = editContentMetadata(ctx, sess, metadataId.Id, &appDb.EditContentMetadata{
-			Visibility: req.Visibility,
+			Visibility:   req.Visibility,
+			CreatorAlias: req.CreatorAlias,
 		})
 		if err != nil {
 			return err
@@ -157,6 +158,7 @@ func (cdb *PostDB) EditComment(ctx context.Context, id int64, req *appDb.EditCom
 			if _, err := sess.SQL().
 				Update("comment").
 				Set("content = ?", req.Content).
+				Where("id = ?", id).
 				ExecContext(ctx); err != nil {
 				return nil
 			}
@@ -211,9 +213,14 @@ func editContentMetadata(ctx context.Context, sess db.Session, metadataId int64,
 		return nil
 	}
 
-	_, err = sess.SQL().
+	updater := sess.SQL().
 		Update("content_metadata").
-		Set("visibility = ?", req.Visibility).
+		Set("visibility = ?", req.Visibility)
+
+	if len(req.CreatorAlias) > 0 {
+		updater = updater.Set("creator_alias = ?", req.CreatorAlias)
+	}
+	_, err = updater.Where("id = ?", metadataId).
 		ExecContext(ctx)
 	return err
 }
@@ -255,19 +262,24 @@ type flattenedUserVote struct {
 	Value sql.NullInt16 `db:"value"`
 }
 
+type flattenedContentAuthor struct {
+	Id             string `db:"creator_id"`
+	DisplayName    string `db:"display_name"`
+	Alias          string `db:"creator_alias"`
+	AvatarBlobName string `db:"avatar_blob_name"`
+}
+
 type flattenedContentMetadata struct {
-	Id                 int64            `db:"metadata_id"`
-	NumVotes           int              `db:"num_votes"`
-	VoteTotal          int              `db:"vote_total"`
-	CreatorId          string           `db:"creator_id"`
-	CreatorDisplayName string           `db:"display_name"`
-	CreatorAlias       string           `db:"creator_alias"`
-	Visibility         model.Visibility `db:"visibility"`
-	Status             model.Status     `db:"status"`
-	flattenedUserVote  `db:",inline"`
-	ImageBlobNamesStr  string    `db:"image_blob_names"`
-	CreatedAt          time.Time `db:"created_at"`
-	UpdatedAt          time.Time `db:"updated_at"`
+	Id                int64                  `db:"metadata_id"`
+	NumVotes          uint64                 `db:"num_votes"`
+	VoteTotal         int64                  `db:"vote_total"`
+	Creator           flattenedContentAuthor `db:",inline"`
+	Visibility        model.Visibility       `db:"visibility"`
+	Status            model.Status           `db:"status"`
+	flattenedUserVote `db:",inline"`
+	ImageBlobNamesStr string    `db:"image_blob_names"`
+	CreatedAt         time.Time `db:"created_at"`
+	UpdatedAt         time.Time `db:"updated_at"`
 }
 
 type flattenedPost struct {
@@ -284,6 +296,7 @@ var contentMetadataColumns = []interface{}{
 	"cm.id as metadata_id",
 	"cm.creator_id",
 	"person.display_name",
+	"person.avatar_blob_name",
 	"cm.creator_alias",
 	"cm.num_votes",
 	"cm.vote_total",
@@ -336,25 +349,45 @@ func (cdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([
 	if query.CommunityIds != nil && len(query.CommunityIds) == 0 {
 		return []*model.Post{}, nil
 	}
-	var optionalConditions []*db.RawExpr
 
+	var conds []*db.RawExpr
 	// TODO: Convert to an interface
-	if query.From != nil {
-		optionalConditions = append(optionalConditions,
-			db.Raw("(cm.created_at < ? OR cm.created_at = ? AND (? = '' OR p.id < ?))",
-				query.From, query.From, query.LastId, query.LastId),
-		)
+	var orderBy []interface{}
+	if query.PageByVote != nil {
+		orderBy = []interface{}{"cm.vote_total DESC", "cm.id DESC"}
+		if query.PageByVote.MaxUpvotes != nil {
+			// TODO: Switch to db.Cond
+			conds = append(conds,
+				db.Raw("(cm.vote_total < ? OR (cm.vote_total = ? AND (? = '' OR p.id < ?)))",
+					query.PageByVote.MaxUpvotes.Val, query.PageByVote.MaxUpvotes.Val, query.PageByVote.LastId, query.PageByVote.LastId),
+			)
+		}
+	} else if query.PageByDate != nil {
+		orderBy = []interface{}{"cm.created_at DESC", "cm.id DESC"}
+		if query.PageByDate.From != nil {
+			// TODO: Switch to db.Cond
+			conds = append(conds,
+				db.Raw("(cm.created_at < ? OR (cm.created_at = ? AND (? = '' OR p.id < ?)))",
+					query.PageByDate.From, query.PageByDate.From, query.PageByDate.LastId, query.PageByDate.LastId),
+			)
+		}
+	} else {
+		panic("must provide a paging option")
 	}
 	if query.CommunityIds != nil {
-		optionalConditions = append(optionalConditions, db.Raw("(pc.community_id IN ?)", query.CommunityIds))
+		conds = append(conds, db.Raw("(pc.community_id IN ?)", query.CommunityIds))
 	}
 
 	if query.ByUser != nil {
-		optionalConditions = append(optionalConditions, db.Raw("(cm.creator_id = ?)", query.ByUser.Id))
+		conds = append(conds, db.Raw("(cm.creator_id = ?)", query.ByUser.Id))
+	}
+
+	if query.Visibility != nil {
+		conds = append(conds, db.Raw("(cm.visibility = ?)", query.Visibility))
 	}
 
 	if !query.IncludeDeleted {
-		optionalConditions = append(optionalConditions, db.Raw("(cm.status != 'DELETED')"))
+		conds = append(conds, db.Raw("(cm.status != 'DELETED')"))
 	}
 
 	var flattenedPosts []flattenedPost
@@ -366,7 +399,7 @@ func (cdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([
 				From("post as p").
 				Join("content_metadata as cm").On("p.metadata_id=cm.id").
 				LeftJoin("post_communities as pc").On("p.id=pc.post_id").
-				Where(andExpressions(optionalConditions...)...).
+				Where(convertDbRawToInterface(conds...)...).
 				And("(? OR pc.community_id IN ?)", query.CommunityIds == nil, query.CommunityIds).
 				GroupBy("p.id")).
 		As("p_ids").
@@ -379,7 +412,7 @@ func (cdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([
 		Join("community as c").On("pc.community_id = c.id").
 		LeftJoin("content_image as ci").On("cm.id = ci.metadata_id").
 		LeftJoin("image").On("ci.image_id = image.id").
-		OrderBy("cm.created_at DESC", "cm.id DESC").
+		OrderBy(orderBy...).
 		GroupBy("p.id", "cm.id", "person.firebase_id").
 		Limit(int(query.Limit)).
 		IteratorContext(ctx).
@@ -530,16 +563,12 @@ func buildContentMetadataFromFlattened(metadata *flattenedContentMetadata) (*mod
 
 	return &model.ContentMetadata{
 		Id: metadata.Id,
-		Creator: &model.DisplayableUser{
+		Creator: &model.ContentAuthor{
 			User: &model.User{
-				Id:          metadata.CreatorId,
-				DisplayName: metadata.CreatorDisplayName,
-				Avatar:      util.Avatar(metadata.CreatorId),
+				Id:          metadata.Creator.Id,
+				DisplayName: metadata.Creator.DisplayName,
 			},
-			AnonymousUser: &model.AnonymousUser{
-				DisplayName: metadata.CreatorAlias,
-				Avatar:      util.Avatar(metadata.CreatorAlias),
-			},
+			AnonymousUser: util.BuildAnonymousUserFromDisplayName(metadata.Creator.Alias), // TODO: Move avatar logic to frontend?
 		},
 		UserVote:       vote,
 		Status:         metadata.Status,

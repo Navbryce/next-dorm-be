@@ -88,9 +88,9 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 		return nil, err
 	}
 
-	creatorAlias := ""
+	var creatorAlias model.AnonymousUser
 	if req.Visibility == model.VisibilityHidden {
-		creatorAlias = util.GenerateAlias()
+		creatorAlias = *util.GenerateAnonymousUser()
 	}
 
 	id, err := pr.db.CreatePost(c, &db.CreatePost{
@@ -100,7 +100,7 @@ func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) 
 		CreateContentMetadata: &db.CreateContentMetadata{
 			CreatorId:      middleware.MustGetToken(c).UID,
 			Visibility:     req.Visibility,
-			CreatorAlias:   creatorAlias,
+			CreatorAlias:   creatorAlias.DisplayName,
 			ImageBlobNames: req.ImageBlobNames,
 		},
 	})
@@ -140,11 +140,16 @@ func (pr *postRoutes) editPost(c *gin.Context) (interface{}, *util.HTTPError) {
 
 	if !post.CanEdit(middleware.GetUser(c)) {
 		// TODO: Create permission checking system where model just defines a permission object
-		return nil, util.BuildOperationForbidden("must be owner or admin")
+		return nil, util.BuildOperationForbidden("must be owner or admin. or the content is deleted")
 	}
 
 	if err := pr.imagesMustExist(c, req.ImageBlobNames.Added); err != nil {
 		return nil, err
+	}
+
+	var newAlias model.AnonymousUser
+	if len(post.Creator.AnonymousUser.DisplayName) == 0 && req.Visibility == model.VisibilityHidden {
+		newAlias = *util.GenerateAnonymousUser()
 	}
 
 	if err := pr.db.EditPost(c, post.Id, &db.EditPost{
@@ -154,6 +159,7 @@ func (pr *postRoutes) editPost(c *gin.Context) (interface{}, *util.HTTPError) {
 			ImageBlobNamesToAdd:    req.ImageBlobNames.Added,
 			ImageBlobNamesToRemove: req.ImageBlobNames.Removed,
 			Visibility:             req.Visibility,
+			CreatorAlias:           newAlias.DisplayName,
 		},
 	},
 	); err != nil {
@@ -219,9 +225,11 @@ func (pr *postRoutes) createComment(c *gin.Context) (interface{}, *util.HTTPErro
 		parentMetadataId = comment.ContentMetadata.Id
 	}
 
-	creatorAlias := ""
+	var alias *model.AnonymousUser
+	aliasDisplayName := ""
 	if req.Visibility == model.VisibilityHidden {
-		creatorAlias = util.GenerateAlias()
+		alias = util.GenerateAnonymousUser()
+		aliasDisplayName = alias.DisplayName
 	}
 
 	id, err := pr.db.CreateComment(c, &db.CreateComment{
@@ -231,14 +239,15 @@ func (pr *postRoutes) createComment(c *gin.Context) (interface{}, *util.HTTPErro
 		CreateContentMetadata: &db.CreateContentMetadata{
 			CreatorId:    middleware.MustGetToken(c).UID,
 			Visibility:   req.Visibility,
-			CreatorAlias: creatorAlias,
+			CreatorAlias: aliasDisplayName,
 		},
 	})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
 	return &gin.H{
-		"id": id,
+		"id":    id,
+		"alias": alias,
 	}, nil
 }
 
@@ -260,20 +269,30 @@ func (pr *postRoutes) editComment(c *gin.Context) (interface{}, *util.HTTPError)
 	}
 	// TODO: Check if comment exists under post?
 	if !comment.CanEdit(middleware.MustGetUser(c)) {
-		return nil, util.BuildOperationForbidden("user is not owner of the comment or admin")
+		return nil, util.BuildOperationForbidden("user is not owner of the comment or admin. or the content is deleted.")
 	}
-	if comment.Status == model.StatusDeleted {
-		return nil, util.BuildOperationForbidden("comment is deleted")
+
+	newAliasDisplayName := ""
+	var alias *model.AnonymousUser
+	if req.Visibility == model.VisibilityHidden {
+		alias = comment.Creator.AnonymousUser
+		if len(comment.Creator.AnonymousUser.DisplayName) == 0 && req.Visibility == model.VisibilityHidden {
+			alias = util.GenerateAnonymousUser()
+			newAliasDisplayName = alias.DisplayName
+		}
 	}
+
 	if err := pr.db.EditComment(c, comment.Id, &db.EditComment{
 		EditContentMetadata: &db.EditContentMetadata{
-			Visibility: req.Visibility,
+			Visibility:   req.Visibility,
+			CreatorAlias: newAliasDisplayName,
 		},
 		Content: req.Content,
 	}); err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
-	return nil, nil
+
+	return gin.H{"alias": alias}, nil
 }
 
 func (pr *postRoutes) deleteComment(c *gin.Context) (interface{}, *util.HTTPError) {
@@ -311,6 +330,18 @@ func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
 	}
 
 	cursor := req.PostCursor
+	switch v := cursor.(type) {
+	case *app.MostRecentCursor:
+		if !canViewHiddenPostsByUser(middleware.GetUser(c), v.ByUser) {
+			visibility := model.VisibilityNormal
+			v.Visibility = &visibility
+		}
+	case *app.MostPopularCursor:
+		if !canViewHiddenPostsByUser(middleware.GetUser(c), v.ByUser) {
+			visibility := model.VisibilityNormal
+			v.Visibility = &visibility
+		}
+	}
 	posts, nextCursor, err := cursor.Posts(c, pr.db, middleware.GetUser(c), &app.PostCursorOpts{Limit: 20})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
@@ -320,6 +351,11 @@ func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
 		"posts":      model.MakePostsDisplayableFor(posts, middleware.GetUser(c)),
 		"nextCursor": nextCursor,
 	}, nil
+}
+
+func canViewHiddenPostsByUser(userMaybe *model.User, byUserMaybe *app.SerializableByUser) bool {
+	return byUserMaybe == nil ||
+		(userMaybe != nil && (userMaybe.Id == byUserMaybe.Id || userMaybe.IsAdmin))
 }
 
 func (pr *postRoutes) getComments(c *gin.Context) (interface{}, *util.HTTPError) {
@@ -481,7 +517,10 @@ func (pr *postRoutes) imagesMustExist(c *gin.Context, imageBlobNames []string) *
 				Message: "a storage error occurred",
 			}
 		} else if !exists {
-			return util.BuildDoesNotExistHTTPErr(fmt.Sprintf("uploaded image %v", blobName))
+			return &util.HTTPError{
+				Status:  http.StatusBadRequest,
+				Message: fmt.Sprintf("uploaded image does not exist %v", blobName),
+			}
 		}
 	}
 	return nil

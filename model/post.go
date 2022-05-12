@@ -23,13 +23,13 @@ type Vote struct {
 }
 
 type ContentMetadata struct {
-	Id             int64            `json:"-"`
-	Creator        *DisplayableUser `json:"creator"`
-	UserVote       *Vote            `json:"userVote"`
+	Id             int64          `json:"-"`
+	Creator        *ContentAuthor `json:"creator"`
+	UserVote       *Vote          `json:"userVote"`
 	Status         `json:"status"`
 	Visibility     Visibility `json:"visibility"`
-	NumVotes       int        `json:"numVotes"`
-	VoteTotal      int        `json:"voteTotal"`
+	NumVotes       uint64     `json:"numVotes"`
+	VoteTotal      int64      `json:"voteTotal"`
 	ImageBlobNames []string   `json:"imageBlobNames"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	UpdatedAt      time.Time  `json:"updatedAt"`
@@ -42,9 +42,9 @@ func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
 		if user != nil && (user.IsAdmin || user.Id == cm.Creator.Id) {
 			return cm
 		}
-		cm.Creator = &DisplayableUser{AnonymousUser: cm.Creator.AnonymousUser}
+		cm.Creator = &ContentAuthor{AnonymousUser: cm.Creator.AnonymousUser}
 	case VisibilityNormal:
-		cm.Creator = &DisplayableUser{User: cm.Creator.User.MakeDisplayableFor(user)}
+		cm.Creator = &ContentAuthor{User: cm.Creator.User.MakeDisplayableFor(user)}
 	}
 
 	return cm
@@ -52,6 +52,9 @@ func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
 
 // TODO: move this logic into controller?
 func (cm *ContentMetadata) CanEdit(user *User) bool {
+	if cm.Status == StatusDeleted {
+		return false
+	}
 	return user.Id == cm.Creator.Id || user.IsAdmin
 }
 
@@ -111,5 +114,5 @@ type Report struct {
 	Id      int64
 	Post    *Post
 	Reason  string
-	Creator *DisplayableUser
+	Creator *ContentAuthor
 }

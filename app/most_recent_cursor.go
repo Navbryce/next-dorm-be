@@ -12,10 +12,11 @@ type MostRecentCursor struct {
 	Communities []int64             `json:"communities,omitempty"`
 	LastDate    *time.Time          `json:"lastDate,omitempty"`
 	LastId      string              `json:"lastId"`
-	ByUser      *serializableByUser `json:"byUser,omitempty"`
+	ByUser      *SerializableByUser `json:"byUser,omitempty"`
+	Visibility  *model.Visibility   `json:"visibility,omitempty"`
 }
 
-type serializableByUser struct {
+type SerializableByUser struct {
 	Id string `json:"id"`
 }
 
@@ -32,10 +33,13 @@ func (mrpc *MostRecentCursor) Posts(ctx context.Context, db appDb.Database, user
 	}
 
 	posts, err = db.GetPosts(ctx, &appDb.PostsListQuery{
-		From:         mrpc.LastDate,
-		LastId:       mrpc.LastId,
 		CommunityIds: mrpc.Communities,
 		ByUser:       byUser,
+		Visibility:   mrpc.Visibility,
+		PageByDate: &appDb.ByDatePaging{
+			From:   mrpc.LastDate,
+			LastId: mrpc.LastId,
+		},
 		PostsListQueryOpts: &appDb.PostsListQueryOpts{
 			Limit:         cursorOpts.Limit,
 			VoteHistoryOf: voteHistoryOf,

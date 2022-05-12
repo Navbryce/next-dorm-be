@@ -16,8 +16,3 @@ type PostCursor interface {
 }
 
 type PostCursorType string
-
-const (
-	PostCursorTypeMostRecent       PostCursorType = "MOST_RECENT"
-	PostCursorTypeSubbedMostRecent PostCursorType = "SUBBED_MOST_RECENT"
-)

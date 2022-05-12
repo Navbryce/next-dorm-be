@@ -9,6 +9,10 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+type IntFilter struct {
+	Val int64
+}
+
 type Database interface {
 	CommunityDatabase
 	PostDatabase
@@ -35,6 +39,7 @@ type CreateContentMetadata struct {
 }
 
 type EditContentMetadata struct {
+	CreatorAlias           string
 	ImageBlobNamesToAdd    []string
 	ImageBlobNamesToRemove []string
 	Visibility             model.Visibility
@@ -79,13 +84,23 @@ type ByUser struct {
 }
 
 type PostsListQuery struct {
-	From           *time.Time
-	LastId         string // TODO: Change to int64
 	CommunityIds   []int64
 	IncludeDeleted bool
 	*ByUser
-	model.Visibility
+	Visibility *model.Visibility
+	PageByDate *ByDatePaging
+	PageByVote *ByVotePaging
 	*PostsListQueryOpts
+}
+
+type ByDatePaging struct {
+	From   *time.Time
+	LastId string // TODO: Change to int64
+}
+
+type ByVotePaging struct {
+	MaxUpvotes *IntFilter
+	LastId     string
 }
 
 type PostsListQueryOpts struct {
