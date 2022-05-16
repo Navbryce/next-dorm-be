@@ -10,7 +10,7 @@ processes = []
   dockerfile = "Dockerfile"
 
 [env]
-  FE_ORIGINS="https://next-dorm.netlify.app"
+  FE_ORIGINS="https://nextdorm.netlify.app"
   GIN_MODE = "debug"
   PORT = 8080
 
