@@ -100,6 +100,7 @@ type ByDatePaging struct {
 
 type ByVotePaging struct {
 	MaxUpvotes *IntFilter
+	Since      *time.Time
 	LastId     string
 }
 
@@ -134,6 +135,6 @@ type SubscriptionDatabase interface {
 }
 
 type UserDatabase interface {
-	CreateUser(context.Context, *model.User) error
-	GetUser(context.Context, string) (*model.User, error)
+	CreateUser(context.Context, *model.LocalUser) error
+	GetUser(context.Context, string) (*model.LocalUser, error)
 }

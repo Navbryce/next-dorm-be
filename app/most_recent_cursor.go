@@ -20,7 +20,7 @@ type SerializableByUser struct {
 	Id string `json:"id"`
 }
 
-func (mrpc *MostRecentCursor) Posts(ctx context.Context, db appDb.Database, user *model.User, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
+func (mrpc *MostRecentCursor) Posts(ctx context.Context, db appDb.Database, user *model.LocalUser, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
 	// TODO: PERMS CHECKS?
 	voteHistoryOf := ""
 	if user != nil {

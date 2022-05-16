@@ -35,7 +35,7 @@ type ContentMetadata struct {
 	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
-func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
+func (cm *ContentMetadata) MakeDisplayableFor(user *LocalUser) *ContentMetadata {
 	switch cm.Visibility {
 	case VisibilityHidden:
 		// TODO: Refactor into method checking if user is the person or an admin
@@ -44,14 +44,14 @@ func (cm *ContentMetadata) MakeDisplayableFor(user *User) *ContentMetadata {
 		}
 		cm.Creator = &ContentAuthor{AnonymousUser: cm.Creator.AnonymousUser}
 	case VisibilityNormal:
-		cm.Creator = &ContentAuthor{User: cm.Creator.User.MakeDisplayableFor(user)}
+		cm.Creator = &ContentAuthor{LocalUser: cm.Creator.LocalUser.MakeDisplayableFor(user)}
 	}
 
 	return cm
 }
 
 // TODO: move this logic into controller?
-func (cm *ContentMetadata) CanEdit(user *User) bool {
+func (cm *ContentMetadata) CanEdit(user *LocalUser) bool {
 	if cm.Status == StatusDeleted {
 		return false
 	}
@@ -59,7 +59,7 @@ func (cm *ContentMetadata) CanEdit(user *User) bool {
 }
 
 // TODO: Move this logic into controller?
-func (cm *ContentMetadata) CanDelete(user *User) bool {
+func (cm *ContentMetadata) CanDelete(user *LocalUser) bool {
 	return user.Id == cm.Creator.Id || user.IsAdmin
 }
 
@@ -73,12 +73,12 @@ type Post struct {
 }
 
 // MakeDisplayableFor mutates the object
-func (p *Post) MakeDisplayableFor(user *User) *Post {
+func (p *Post) MakeDisplayableFor(user *LocalUser) *Post {
 	p.ContentMetadata = p.ContentMetadata.MakeDisplayableFor(user)
 	return p
 }
 
-func MakePostsDisplayableFor(posts []*Post, user *User) []*Post {
+func MakePostsDisplayableFor(posts []*Post, user *LocalUser) []*Post {
 	displayablePosts := make([]*Post, len(posts))
 	for i, post := range posts {
 		displayablePosts[i] = post.MakeDisplayableFor(user)
@@ -100,7 +100,7 @@ type CommentTree struct {
 }
 
 // MakeDisplayableFor mutates the object
-func (ct *CommentTree) MakeDisplayableFor(user *User) *CommentTree {
+func (ct *CommentTree) MakeDisplayableFor(user *LocalUser) *CommentTree {
 	ct.ContentMetadata = ct.ContentMetadata.MakeDisplayableFor(user)
 	for i, child := range ct.Children {
 		ct.Children[i] = child.MakeDisplayableFor(user)

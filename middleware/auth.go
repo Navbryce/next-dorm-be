@@ -38,7 +38,7 @@ func GenAuth(userDB db.UserDatabase, authClient *auth.Client, _ *AuthConfig) gin
 		// TODO: VerifyIDToken and check revoked?
 		token, err := authClient.VerifyIDToken(c, authorizationHeader[0][7:])
 
-		c.Set(TOKEN_KEY, token)
+		c.Set(TOKEN_KEY, &model.FirebaseToken{Token: token})
 
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -78,7 +78,7 @@ func RequireAccount() gin.HandlerFunc {
 		if c.IsAborted() {
 			return
 		}
-		if GetUser(c) != nil {
+		if GetLocalUser(c) != nil {
 			return
 		}
 		c.JSON(http.StatusForbidden, gin.H{
@@ -90,15 +90,15 @@ func RequireAccount() gin.HandlerFunc {
 	}
 }
 
-func GetToken(c *gin.Context) *auth.Token {
+func GetToken(c *gin.Context) *model.FirebaseToken {
 	tokenMaybe, loggedIn := c.Get(TOKEN_KEY)
 	if !loggedIn {
 		return nil
 	}
-	return tokenMaybe.(*auth.Token)
+	return tokenMaybe.(*model.FirebaseToken)
 }
 
-func MustGetToken(c *gin.Context) *auth.Token {
+func MustGetToken(c *gin.Context) *model.FirebaseToken {
 	token := GetToken(c)
 	if token == nil {
 		panic("expected a token")
@@ -106,16 +106,16 @@ func MustGetToken(c *gin.Context) *auth.Token {
 	return token
 }
 
-func GetUser(c *gin.Context) *model.User {
+func GetLocalUser(c *gin.Context) *model.LocalUser {
 	userMaybe, hasProfile := c.Get(USER_KEY)
 	if !hasProfile {
 		return nil
 	}
-	return userMaybe.(*model.User)
+	return userMaybe.(*model.LocalUser)
 }
 
-func MustGetUser(c *gin.Context) *model.User {
-	user := GetUser(c)
+func MustGetLocalUser(c *gin.Context) *model.LocalUser {
+	user := GetLocalUser(c)
 	if user == nil {
 		panic("expected a user to be logged in")
 	}

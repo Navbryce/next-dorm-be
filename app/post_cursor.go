@@ -12,7 +12,7 @@ type PostCursorOpts struct {
 
 // TODO: Go generics?
 type PostCursor interface {
-	Posts(ctx context.Context, db appDb.Database, user *model.User, opts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error)
+	Posts(ctx context.Context, db appDb.Database, user *model.LocalUser, opts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error)
 }
 
 type PostCursorType string

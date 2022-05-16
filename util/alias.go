@@ -11,6 +11,15 @@ var names = []string{
 	"Cat",
 	"Frog",
 	"Wreck",
+	"Phone",
+	"Dragon",
+	"Number 3",
+	"Piano",
+	"Mask",
+	"Aardvark",
+	"Albatross",
+	"Gazelle",
+	"Sand",
 }
 
 func GenerateAnonymousUser() *model.AnonymousUser {

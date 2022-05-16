@@ -8,6 +8,7 @@ import (
 	"github.com/navbryce/next-dorm-be/services"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	firebase "firebase.google.com/go/v4"
@@ -42,7 +43,7 @@ func main() {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:  []string{"http://localhost:3000"},
+		AllowOrigins:  strings.Split(os.Getenv("FE_ORIGINS"), ";"), // TODO: Update FE origin
 		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE"},
 		AllowHeaders:  []string{"Origin", "Authorization"},
 		ExposeHeaders: []string{"Content-Length"},

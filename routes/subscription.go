@@ -3,6 +3,7 @@ package routes
 import (
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
+	"github.com/go-sql-driver/mysql"
 	"github.com/navbryce/next-dorm-be/db"
 	"github.com/navbryce/next-dorm-be/middleware"
 	"github.com/navbryce/next-dorm-be/model"
@@ -49,10 +50,13 @@ func (sr *subscriptionRoutes) subscribe(c *gin.Context) (interface{}, *util.HTTP
 			subAction = sr.db.DeleteSubForUser
 		}
 		if err := subAction(c, &model.Subscription{
-			UserId:      middleware.MustGetUser(c).Id,
+			UserId:      middleware.MustGetLocalUser(c).Id,
 			CommunityId: communityId,
-		}); err != nil && !db.IsDupKeyErr(err) {
-			return nil, util.BuildDbHTTPErr(err)
+		}); err != nil {
+			err, ok := err.(*mysql.MySQLError)
+			if !ok || !db.IsDupKeyErr(err) {
+				return nil, util.BuildDbHTTPErr(err)
+			}
 		}
 	}
 	return nil, nil

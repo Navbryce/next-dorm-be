@@ -296,7 +296,6 @@ var contentMetadataColumns = []interface{}{
 	"cm.id as metadata_id",
 	"cm.creator_id",
 	"person.display_name",
-	"person.avatar_blob_name",
 	"cm.creator_alias",
 	"cm.num_votes",
 	"cm.vote_total",
@@ -355,6 +354,9 @@ func (cdb *PostDB) GetPosts(ctx context.Context, query *appDb.PostsListQuery) ([
 	var orderBy []interface{}
 	if query.PageByVote != nil {
 		orderBy = []interface{}{"cm.vote_total DESC", "cm.id DESC"}
+		if query.PageByVote.Since != nil {
+			conds = append(conds, db.Raw("(cm.created_at > ?)", query.PageByVote.Since))
+		}
 		if query.PageByVote.MaxUpvotes != nil {
 			// TODO: Switch to db.Cond
 			conds = append(conds,
@@ -564,7 +566,7 @@ func buildContentMetadataFromFlattened(metadata *flattenedContentMetadata) (*mod
 	return &model.ContentMetadata{
 		Id: metadata.Id,
 		Creator: &model.ContentAuthor{
-			User: &model.User{
+			LocalUser: &model.LocalUser{
 				Id:          metadata.Creator.Id,
 				DisplayName: metadata.Creator.DisplayName,
 			},

@@ -1,0 +1,39 @@
+# fly.toml file generated for next-dorm-be on 2022-05-15T16:05:07-04:00
+
+app = "next-dorm-be"
+
+kill_signal = "SIGINT"
+kill_timeout = 5
+processes = []
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  FE_ORIGINS="https://next-dorm.netlify.app"
+  GIN_MODE = "debug"
+  GOOGLE_APPLICATION_CREDENTIALS="./firebase-credentials.json"
+  PORT = 8080
+
+[experimental]
+  auto_rollback = true
+
+[[services]]
+  http_checks = []
+  internal_port = 8080
+  protocol = "tcp"
+  script_checks = []
+
+  [services.concurrency]
+    hard_limit = 100
+    soft_limit = 50
+    type = "connections"
+
+  [[services.ports]]
+    force_https = true
+    handlers = ["http"]
+    port = 80
+
+ [[services.ports]]
+   handlers = ["tls", "http"]
+   port = "443"

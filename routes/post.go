@@ -138,7 +138,7 @@ func (pr *postRoutes) editPost(c *gin.Context) (interface{}, *util.HTTPError) {
 		return nil, err
 	}
 
-	if !post.CanEdit(middleware.GetUser(c)) {
+	if !post.CanEdit(middleware.GetLocalUser(c)) {
 		// TODO: Create permission checking system where model just defines a permission object
 		return nil, util.BuildOperationForbidden("must be owner or admin. or the content is deleted")
 	}
@@ -174,7 +174,7 @@ func (pr *postRoutes) deletePost(c *gin.Context) (interface{}, *util.HTTPError) 
 	if httpErr != nil {
 		return nil, httpErr
 	}
-	if !post.CanDelete(middleware.MustGetUser(c)) {
+	if !post.CanDelete(middleware.MustGetLocalUser(c)) {
 		// TODO: Switch to permission system
 		return nil, util.BuildOperationForbidden("user is not the owner of the post or an admin")
 	}
@@ -268,7 +268,7 @@ func (pr *postRoutes) editComment(c *gin.Context) (interface{}, *util.HTTPError)
 		return nil, httpErr
 	}
 	// TODO: Check if comment exists under post?
-	if !comment.CanEdit(middleware.MustGetUser(c)) {
+	if !comment.CanEdit(middleware.MustGetLocalUser(c)) {
 		return nil, util.BuildOperationForbidden("user is not owner of the comment or admin. or the content is deleted.")
 	}
 
@@ -301,7 +301,7 @@ func (pr *postRoutes) deleteComment(c *gin.Context) (interface{}, *util.HTTPErro
 		return nil, httpErr
 	}
 	// TODO: Check if comment exists under post?
-	if !comment.CanDelete(middleware.MustGetUser(c)) {
+	if !comment.CanDelete(middleware.MustGetLocalUser(c)) {
 		return nil, util.BuildOperationForbidden("user is not owner of the post")
 	}
 	if err := pr.db.MarkCommentAsDeleted(c, comment.Id); err != nil {
@@ -315,7 +315,7 @@ func (pr *postRoutes) getPostById(c *gin.Context) (interface{}, *util.HTTPError)
 	if httpErr != nil {
 		return nil, httpErr
 	}
-	return post.MakeDisplayableFor(middleware.GetUser(c)), nil
+	return post.MakeDisplayableFor(middleware.GetLocalUser(c)), nil
 }
 
 // TODO: Turn cursor into struct with fields for each type and add methods for each type. No enum
@@ -332,28 +332,28 @@ func (pr *postRoutes) getPosts(c *gin.Context) (interface{}, *util.HTTPError) {
 	cursor := req.PostCursor
 	switch v := cursor.(type) {
 	case *app.MostRecentCursor:
-		if !canViewHiddenPostsByUser(middleware.GetUser(c), v.ByUser) {
+		if !canViewHiddenPostsByUser(middleware.GetLocalUser(c), v.ByUser) {
 			visibility := model.VisibilityNormal
 			v.Visibility = &visibility
 		}
 	case *app.MostPopularCursor:
-		if !canViewHiddenPostsByUser(middleware.GetUser(c), v.ByUser) {
+		if !canViewHiddenPostsByUser(middleware.GetLocalUser(c), v.ByUser) {
 			visibility := model.VisibilityNormal
 			v.Visibility = &visibility
 		}
 	}
-	posts, nextCursor, err := cursor.Posts(c, pr.db, middleware.GetUser(c), &app.PostCursorOpts{Limit: 20})
+	posts, nextCursor, err := cursor.Posts(c, pr.db, middleware.GetLocalUser(c), &app.PostCursorOpts{Limit: 20})
 	if err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
 
 	return gin.H{
-		"posts":      model.MakePostsDisplayableFor(posts, middleware.GetUser(c)),
+		"posts":      model.MakePostsDisplayableFor(posts, middleware.GetLocalUser(c)),
 		"nextCursor": nextCursor,
 	}, nil
 }
 
-func canViewHiddenPostsByUser(userMaybe *model.User, byUserMaybe *app.SerializableByUser) bool {
+func canViewHiddenPostsByUser(userMaybe *model.LocalUser, byUserMaybe *app.SerializableByUser) bool {
 	return byUserMaybe == nil ||
 		(userMaybe != nil && (userMaybe.Id == byUserMaybe.Id || userMaybe.IsAdmin))
 }
@@ -373,7 +373,7 @@ func (pr *postRoutes) getComments(c *gin.Context) (interface{}, *util.HTTPError)
 	}
 
 	for i, comment := range comments {
-		comments[i] = comment.MakeDisplayableFor(middleware.GetUser(c))
+		comments[i] = comment.MakeDisplayableFor(middleware.GetLocalUser(c))
 	}
 
 	return comments, nil

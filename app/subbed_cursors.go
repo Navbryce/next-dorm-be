@@ -12,7 +12,7 @@ type SubbedMostRecentCursor struct {
 	MostRecentCursor
 }
 
-func (s *SubbedMostRecentCursor) Posts(ctx context.Context, db appDb.Database, user *model.User, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
+func (s *SubbedMostRecentCursor) Posts(ctx context.Context, db appDb.Database, user *model.LocalUser, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
 	if s != nil && s.Communities != nil {
 		return s.MostRecentCursor.Posts(ctx, db, user, cursorOpts)
 	}
@@ -28,7 +28,7 @@ type SubbedMostPopularCursor struct {
 	MostPopularCursor
 }
 
-func (s *SubbedMostPopularCursor) Posts(ctx context.Context, db appDb.Database, user *model.User, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
+func (s *SubbedMostPopularCursor) Posts(ctx context.Context, db appDb.Database, user *model.LocalUser, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
 	if s != nil && s.Communities != nil {
 		return s.MostPopularCursor.Posts(ctx, db, user, cursorOpts)
 	}
@@ -40,7 +40,7 @@ func (s *SubbedMostPopularCursor) Posts(ctx context.Context, db appDb.Database, 
 	return s.WithCommunities(communities).Posts(ctx, db, user, cursorOpts)
 }
 
-func fetchSubbedCommunityIds(ctx context.Context, db appDb.Database, user *model.User) ([]int64, error) {
+func fetchSubbedCommunityIds(ctx context.Context, db appDb.Database, user *model.LocalUser) ([]int64, error) {
 	if user == nil {
 		return nil, errors.New("must be logged in to fetch subs")
 	}

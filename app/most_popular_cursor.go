@@ -19,9 +19,25 @@ func (lvt *LastVoteTotal) ToDBFilter() *appDb.IntFilter {
 	return &appDb.IntFilter{Val: lvt.Val}
 }
 
+type Since string
+
+func (s *Since) ToTime() *time.Time {
+	switch *s {
+	case SinceToday:
+		val := time.Now().Add(-24 * time.Hour)
+		return &val
+	default:
+		panic("not defined for since value")
+	}
+}
+
+const (
+	SinceToday = "TODAY"
+)
+
 type MostPopularCursor struct {
 	Communities   []int64             `json:"communities,omitempty"`
-	Since         *time.Time          `json:"since,omitempty"`
+	Since         *Since              `json:"since,omitempty"`
 	LastVoteTotal *LastVoteTotal      `json:"lastVoteTotal,omitempty"` // TODO: Will have to change to nilable pointer
 	LastId        string              `json:"lastId"`
 	ByUser        *SerializableByUser `json:"byUser,omitempty"`
@@ -29,7 +45,7 @@ type MostPopularCursor struct {
 }
 
 // TODO: Split into filter params and persisted cursor params
-func (mpc *MostPopularCursor) Posts(ctx context.Context, db appDb.Database, user *model.User, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
+func (mpc *MostPopularCursor) Posts(ctx context.Context, db appDb.Database, user *model.LocalUser, cursorOpts *PostCursorOpts) (posts []*model.Post, cursor interface{}, err error) {
 	// TODO: PERMS CHECKS?
 	voteHistoryOf := ""
 	if user != nil {
@@ -40,6 +56,10 @@ func (mpc *MostPopularCursor) Posts(ctx context.Context, db appDb.Database, user
 	if mpc.ByUser != nil {
 		byUser = &appDb.ByUser{Id: mpc.ByUser.Id}
 	}
+	var since *time.Time
+	if mpc.Since != nil {
+		since = mpc.Since.ToTime()
+	}
 
 	// TODO: Create specific query for paged by vote total
 	posts, err = db.GetPosts(ctx, &appDb.PostsListQuery{
@@ -49,6 +69,7 @@ func (mpc *MostPopularCursor) Posts(ctx context.Context, db appDb.Database, user
 		PageByVote: &appDb.ByVotePaging{
 			MaxUpvotes: mpc.LastVoteTotal.ToDBFilter(),
 			LastId:     mpc.LastId,
+			Since:      since,
 		},
 		PostsListQueryOpts: &appDb.PostsListQueryOpts{
 			Limit:         cursorOpts.Limit,
