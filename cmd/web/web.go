@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/navbryce/next-dorm-be/controllers"
 	"github.com/navbryce/next-dorm-be/db/planetscale"
 	"github.com/navbryce/next-dorm-be/routes"
@@ -23,6 +24,10 @@ func main() {
 	}
 	defer db.Close()
 
+	err = configureFirebaseCredentials()
+	if err != nil {
+		log.Fatal("an error occurred while configuring firebase credentials", err)
+	}
 	app, err := firebase.NewApp(context.Background(), nil)
 	if err != nil {
 		log.Fatalf("error initializing firebase: %v\n", err)
@@ -68,4 +73,33 @@ func main() {
 	if err := r.Run(); err != nil {
 		log.Fatal("Error when attempting to run web server", err)
 	}
+}
+
+const (
+	CredentialsPathEnvVar = "GOOGLE_APPLICATION_CREDENTIALS"
+	CredentialsJsonEnvVar = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+	TargetCredentialsFile = "./google-application-credentials.json"
+)
+
+func configureFirebaseCredentials() error {
+	credentialsPath, hasCredentialsPath := os.LookupEnv(CredentialsPathEnvVar)
+	if hasCredentialsPath {
+		log.Printf("Credentials path detected in env. Expecting credentails to be at %v\n", credentialsPath)
+		return nil
+	}
+	credentialsJson, hasCredentialsJson := os.LookupEnv(CredentialsJsonEnvVar)
+	if hasCredentialsJson {
+		log.Println("Credentials JSON string detected in env.")
+		err := os.WriteFile(TargetCredentialsFile, []byte(credentialsJson), 400)
+		if err != nil {
+			return fmt.Errorf("error writing credentials to temp file, %w", err)
+		}
+		err = os.Setenv(CredentialsPathEnvVar, TargetCredentialsFile)
+		if err != nil {
+			return fmt.Errorf("error setting %v env var %w", CredentialsPathEnvVar, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("must specify either %v (a path)"+
+		" or %v (credentials as JSON string)", CredentialsPathEnvVar, CredentialsJsonEnvVar)
 }

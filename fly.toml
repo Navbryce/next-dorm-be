@@ -12,7 +12,6 @@ processes = []
 [env]
   FE_ORIGINS="https://next-dorm.netlify.app"
   GIN_MODE = "debug"
-  GOOGLE_APPLICATION_CREDENTIALS="./firebase-credentials.json"
   PORT = 8080
 
 [experimental]

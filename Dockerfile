@@ -9,4 +9,6 @@ RUN go mod download && go mod verify
 COPY . .
 RUN go build -v -o /usr/local/bin/ ./cmd/...
 
+# TODO: Pipe secrets JSON into file here rather than in the web cmd?
+
 CMD ["web"]
