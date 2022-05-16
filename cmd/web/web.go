@@ -69,6 +69,7 @@ func main() {
 	routes.AddPostRoutes(&r.RouterGroup, db, authClient, userBucket)
 	routes.AddSubscriptionRoutes(&r.RouterGroup, db, authClient)
 	routes.AddUserRoutes(&r.RouterGroup, db, authClient, userBucket)
+	routes.AddHealthCheckRoutes(&r.RouterGroup)
 
 	if err := r.Run(); err != nil {
 		log.Fatal("Error when attempting to run web server", err)

@@ -37,6 +37,10 @@ type createUserReq struct {
 	DisplayName string `json:"displayName"`
 }
 
+func (cur *createUserReq) Sanitize() *createUserReq {
+	return &createUserReq{DisplayName: util.XSSSanitize(cur.DisplayName)}
+}
+
 func (cur *createUserReq) Validate() *util.HTTPError {
 	if len(cur.DisplayName) < MinDisplayNameLength {
 		return &util.HTTPError{
@@ -52,6 +56,9 @@ func (ur userRoutes) CreateLocalUser(c *gin.Context) (interface{}, *util.HTTPErr
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
+
+	req = *req.Sanitize()
+
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}

@@ -46,13 +46,25 @@ type createPostReq struct {
 	ImageBlobNames []string         `json:"imageBlobNames"`
 }
 
+func (cpr *createPostReq) Sanitize() *createPostReq {
+	return &createPostReq{
+		Title:          util.XSSSanitize(cpr.Title),
+		Content:        util.XSSSanitize(cpr.Content),
+		Communities:    cpr.Communities,
+		Visibility:     cpr.Visibility,
+		ImageBlobNames: cpr.ImageBlobNames,
+	}
+}
+
 func (pr *postRoutes) createPost(c *gin.Context) (interface{}, *util.HTTPError) {
 	var req createPostReq
-	// TODO: Add validation
 	// TODO: GenAuth by community
+	// TODO: Move binding JSON into handler using generics?
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
+
+	req = *req.Sanitize()
 
 	if len(req.Title) == 0 {
 		return nil, &util.HTTPError{
@@ -125,6 +137,15 @@ type editPostReq struct {
 	Visibility     model.Visibility `json:"visibility"`
 }
 
+func (epr *editPostReq) Sanitize() *editPostReq {
+	return &editPostReq{
+		Title:          util.XSSSanitize(epr.Title),
+		Content:        util.XSSSanitize(epr.Content),
+		ImageBlobNames: epr.ImageBlobNames,
+		Visibility:     epr.Visibility,
+	}
+}
+
 func (pr *postRoutes) editPost(c *gin.Context) (interface{}, *util.HTTPError) {
 	// TODO: ADD OWNERSHIP CHECK FOR EDITING POST
 	// TODO: Optimize req to only send fields that are changed. send a diff
@@ -132,6 +153,8 @@ func (pr *postRoutes) editPost(c *gin.Context) (interface{}, *util.HTTPError) {
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
+
+	req = *req.Sanitize()
 
 	post, err := pr.mustGetPostByIdStr(c, c.Param("id"))
 	if err != nil {
@@ -190,11 +213,21 @@ type createCommentReq struct {
 	Visibility      model.Visibility `json:"visibility"`
 }
 
+func (ccr *createCommentReq) Sanitize() *createCommentReq {
+	return &createCommentReq{
+		ParentCommentId: ccr.ParentCommentId,
+		Content:         util.XSSSanitize(ccr.Content),
+		Visibility:      ccr.Visibility,
+	}
+}
+
 func (pr *postRoutes) createComment(c *gin.Context) (interface{}, *util.HTTPError) {
 	var req createCommentReq
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildJSONBindHTTPErr(err)
 	}
+
+	req = *req.Sanitize()
 
 	if len(req.Content) == 0 {
 		return nil, &util.HTTPError{
@@ -257,12 +290,22 @@ type editCommentReq struct {
 	Visibility model.Visibility `json:"visibility"`
 }
 
+func (ecr *editCommentReq) Sanitize() *editCommentReq {
+	return &editCommentReq{
+		Content:    util.XSSSanitize(ecr.Content),
+		Visibility: ecr.Visibility,
+	}
+}
+
 func (pr *postRoutes) editComment(c *gin.Context) (interface{}, *util.HTTPError) {
 	// TODO: We're not using post id. Keep it?
 	var req editCommentReq
 	if err := c.BindJSON(&req); err != nil {
 		return nil, util.BuildDbHTTPErr(err)
 	}
+
+	req = *req.Sanitize()
+
 	comment, httpErr := pr.mustGetCommentByIdStr(c, c.Param("comment-id"))
 	if httpErr != nil {
 		return nil, httpErr
