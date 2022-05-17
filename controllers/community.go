@@ -22,7 +22,7 @@ func (ct *communityTree) isNewer(tree *communityTree) bool {
 	return ct.mostRecentCommunity.After(*tree.mostRecentCommunity)
 }
 
-const TreeUpdateInterval = time.Minute * 20
+const TreeUpdateInterval = 20 * time.Minute
 
 type CommunityController struct {
 	db             db.CommunityDatabase
@@ -125,6 +125,16 @@ func communitiesWithSubStatusesToCommunity(communitiesWithStatuses []*model.Comm
 }
 
 func buildTreeFromCommunities(communities []*model.Community) *communityTree {
+	if len(communities) == 0 {
+		earliestTime := time.Time{} // an empty tree has minimum priority
+		return &communityTree{
+			adjList:             nil,
+			parentAdjList:       nil,
+			mostRecentCommunity: &earliestTime,
+			createdAt:           &earliestTime,
+		}
+	}
+
 	var mostRecent *time.Time
 	adjList := make(map[int64][]*model.Community)
 	idToCommunity := make(map[int64]*model.Community)

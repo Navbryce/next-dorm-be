@@ -1,13 +1,17 @@
 {
-  "East campus" : {},
-  "West Campus" : {
-    "Center Street North": {
-      "Floor 1":  {},
-      "Floor 2":  {},
-      "Floor 3": {},
-      "Floor 4" : {},
-      "Floor 5": {}
-    },
-    "Eighth Street": {"Floor 1":  {}}
+  "Georgia Tech": {
+    "East campus": {},
+    "West Campus": {
+      "Center Street North": {
+        "Floor 1": {},
+        "Floor 2": {},
+        "Floor 3": {},
+        "Floor 4": {},
+        "Floor 5": {}
+      },
+      "Eighth Street": {
+        "Floor 1": {}
+      }
+    }
   }
 }
