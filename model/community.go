@@ -1,13 +1,15 @@
 package model
 
-import "time"
+import (
+	"github.com/navbryce/next-dorm-be/db/dao"
+	"time"
+)
 
 type Community struct {
-	Id   int64  `db:"id" json:"id"`
-	Name string `db:"name" json:"name"`
-	// TODO: If 0, has no parent. Change this to a nilable pointer
-	ParentId  int64      `db:"parent_id" json:"parentId"`
-	CreatedAt *time.Time `db:"created_at"`
+	Id        int64         `db:"id" json:"id"`
+	Name      string        `db:"name" json:"name"`
+	ParentId  dao.NullInt64 `db:"parent_id" json:"parentId"`
+	CreatedAt *time.Time    `db:"created_at"`
 }
 
 type CommunityWithSubStatus struct {

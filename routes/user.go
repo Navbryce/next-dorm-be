@@ -10,6 +10,7 @@ import (
 	"github.com/navbryce/next-dorm-be/model"
 	"github.com/navbryce/next-dorm-be/services"
 	"github.com/navbryce/next-dorm-be/util"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -78,6 +79,8 @@ func (ur userRoutes) CreateLocalUser(c *gin.Context) (interface{}, *util.HTTPErr
 	if err := ur.db.CreateUser(c, user); err != nil {
 		err, ok := err.(*mysql.MySQLError)
 		if ok && db.IsDupKeyErr(err) {
+			dupKey := db.GetDupKey(err)
+			log.Println(dupKey)
 			if strings.Contains(db.GetDupKey(err), "display_name") {
 				return nil, &util.HTTPError{
 					Status:  http.StatusConflict,

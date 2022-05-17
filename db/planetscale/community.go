@@ -35,7 +35,7 @@ func (cdb *CommunityDB) GetCommunitiesByIds(ctx context.Context, ids []int64, op
 	}
 	var communities []*model.CommunityWithSubStatus
 	if err := cdb.sess.SQL().
-		Select("c.id", "c.name", "c.created_at", db.Raw("s.user_id IS NOT NULL AS is_subscribed")).
+		Select("c.id", "c.parent_id", "c.name", "c.created_at", db.Raw("s.user_id IS NOT NULL AS is_subscribed")).
 		From("community as c").
 		// TODO: Change to only join if user id is provided
 		LeftJoin("subscription as s").On("c.id = s.community_id AND s.user_id = ?", opts.ForUserId).

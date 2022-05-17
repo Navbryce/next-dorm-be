@@ -11,5 +11,6 @@ func IsDupKeyErr(error *mysql.MySQLError) bool {
 }
 func GetDupKey(error *mysql.MySQLError) string {
 	r := regexp.MustCompile(`(for key ')((.)+)(')`)
-	return r.FindStringSubmatch(error.Error())[1]
+	match := r.FindString(error.Error())[9:]
+	return match[7 : len(match)-1]
 }

@@ -134,11 +134,11 @@ func buildTreeFromCommunities(communities []*model.Community) *communityTree {
 		if mostRecent == nil || community.CreatedAt.After(*mostRecent) {
 			mostRecent = community.CreatedAt
 		}
-		adjList[community.ParentId] = append(adjList[community.ParentId], community)
+		adjList[community.ParentId.AsInt()] = append(adjList[community.ParentId.AsInt()], community)
 	}
 
 	for _, community := range communities {
-		parentAdjList[community.Id] = idToCommunity[community.ParentId]
+		parentAdjList[community.Id] = idToCommunity[community.ParentId.AsInt()]
 	}
 	now := time.Now()
 	return &communityTree{

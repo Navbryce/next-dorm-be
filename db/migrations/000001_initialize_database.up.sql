@@ -9,11 +9,12 @@ CREATE TABLE IF NOT EXISTS person
 CREATE TABLE IF NOT EXISTS community
 (
     id         MEDIUMINT    NOT NULL AUTO_INCREMENT,
-    name       VARCHAR(500) NOT NULL UNIQUE,
+    name       VARCHAR(500) NOT NULL,
     parent_id  MEDIUMINT,
     created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    INDEX IDX_BY_PARENT (parent_id)
+    INDEX IDX_BY_PARENT (parent_id),
+    UNIQUE INDEX UNIQUE_NAME_TO_PARENT (parent_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS image
