@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/gin-gonic/gin"
 	"github.com/navbryce/next-dorm-be/db"
+	"github.com/navbryce/next-dorm-be/db/dao"
 	"github.com/navbryce/next-dorm-be/model"
 	"github.com/navbryce/next-dorm-be/util"
 	"log"
@@ -84,7 +85,7 @@ func (cc *CommunityController) GetCommunityPos(c *gin.Context, id int64) (*model
 
 	parents := []*model.Community{} // DON'T return nil slice
 	for parent := cc.cachedTree.parentAdjList[id]; parent != nil; parent = cc.cachedTree.parentAdjList[parent.Id] {
-		parents = append(parents, parent)
+		parents = append([]*model.Community{parent}, parents...)
 	}
 
 	return &model.CommunityPosInTree{
@@ -124,6 +125,13 @@ func communitiesWithSubStatusesToCommunity(communitiesWithStatuses []*model.Comm
 	return communities
 }
 
+var AllCommunity = &model.Community{
+	Id:        -1,
+	Name:      "All community",
+	ParentId:  dao.NullInt64{},
+	CreatedAt: nil,
+}
+
 func buildTreeFromCommunities(communities []*model.Community) *communityTree {
 	if len(communities) == 0 {
 		earliestTime := time.Time{} // an empty tree has minimum priority
@@ -138,6 +146,7 @@ func buildTreeFromCommunities(communities []*model.Community) *communityTree {
 	var mostRecent *time.Time
 	adjList := make(map[int64][]*model.Community)
 	idToCommunity := make(map[int64]*model.Community)
+	idToCommunity[AllCommunity.Id] = AllCommunity
 	parentAdjList := make(map[int64]*model.Community)
 	for _, community := range communities {
 		idToCommunity[community.Id] = community
