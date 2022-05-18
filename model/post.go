@@ -90,7 +90,7 @@ type Comment struct {
 	*ContentMetadata
 	Id               int64  `json:"id"`
 	ParentMetadataId int64  `json:"-"`
-	RootMetadataId   int64  `json:"-"`
+	PostMetadataId   int64  `json:"-"`
 	Content          string `json:"content"`
 }
 

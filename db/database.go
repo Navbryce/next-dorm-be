@@ -60,7 +60,7 @@ type EditPost struct {
 
 type CreateComment struct {
 	*CreateContentMetadata
-	RootMetadataId   int64
+	PostMetadataId   int64
 	ParentMetadataId int64
 	Content          string
 }

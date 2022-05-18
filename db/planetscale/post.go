@@ -110,7 +110,7 @@ func (cdb *PostDB) CreateComment(ctx context.Context, req *appDb.CreateComment) 
 
 		res, err := sess.SQL().
 			InsertInto("comment").
-			Values(metadataId, req.RootMetadataId, req.ParentMetadataId, req.Content).
+			Values(metadataId, req.PostMetadataId, req.ParentMetadataId, req.Content).
 			Columns("metadata_id", "root_metadata_id", "parent_metadata_id", "content").
 			ExecContext(ctx)
 		if err != nil {
@@ -121,7 +121,7 @@ func (cdb *PostDB) CreateComment(ctx context.Context, req *appDb.CreateComment) 
 		if _, err = sess.SQL().
 			Update("post").
 			Set("comment_count = comment_count + 1").
-			Where("metadata_id = ?", req.ParentMetadataId).
+			Where("metadata_id = ?", req.PostMetadataId).
 			ExecContext(ctx); err != nil {
 			return err
 		}
@@ -535,7 +535,7 @@ func buildCommentFromFlattened(comment *flattenedComment) (*model.Comment, error
 	return &model.Comment{
 		Id:               comment.Id,
 		ContentMetadata:  metadata,
-		RootMetadataId:   comment.RootMetadataId,
+		PostMetadataId:   comment.RootMetadataId,
 		ParentMetadataId: comment.ParentMetadataId,
 		Content:          comment.Content,
 	}, nil

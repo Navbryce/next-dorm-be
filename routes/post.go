@@ -254,7 +254,7 @@ func (pr *postRoutes) createComment(c *gin.Context) (interface{}, *util.HTTPErro
 		} else if comment == nil {
 			return nil, util.BuildDoesNotExistHTTPErr("comment")
 		}
-		rootMetadataId = comment.RootMetadataId
+		rootMetadataId = comment.PostMetadataId
 		parentMetadataId = comment.ContentMetadata.Id
 	}
 
@@ -267,7 +267,7 @@ func (pr *postRoutes) createComment(c *gin.Context) (interface{}, *util.HTTPErro
 
 	id, err := pr.db.CreateComment(c, &db.CreateComment{
 		Content:          req.Content,
-		RootMetadataId:   rootMetadataId,   // TODO: Switch to post id?
+		PostMetadataId:   rootMetadataId,   // TODO: Switch to post id?
 		ParentMetadataId: parentMetadataId, // TODO: Switch to parent comment id?
 		CreateContentMetadata: &db.CreateContentMetadata{
 			CreatorId:    middleware.MustGetToken(c).UID,
@@ -448,7 +448,7 @@ func (pr *postRoutes) voteForComment(c *gin.Context) (interface{}, *util.HTTPErr
 		return nil, httpErr
 	}
 
-	if strconv.FormatInt(comment.RootMetadataId, 10) != c.Param("id") {
+	if strconv.FormatInt(comment.PostMetadataId, 10) != c.Param("id") {
 		return nil, &util.HTTPError{
 			Status:  http.StatusNotFound,
 			Message: "comment does not exist under post",
