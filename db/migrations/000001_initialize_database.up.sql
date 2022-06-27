@@ -1,8 +1,8 @@
 CREATE TABLE IF NOT EXISTS person
 (
-    firebase_id      VARCHAR(36)   NOT NULL,
-    display_name     VARCHAR(300)  NOT NULL UNIQUE,
-    is_admin         BOOLEAN       NOT NULL DEFAULT FALSE,
+    firebase_id  VARCHAR(36)  NOT NULL,
+    display_name VARCHAR(300) NOT NULL UNIQUE,
+    is_admin     BOOLEAN      NOT NULL DEFAULT FALSE,
     PRIMARY KEY (firebase_id)
 );
 
@@ -100,7 +100,8 @@ CREATE TABLE IF NOT EXISTS report
     tgt_metadata_id INT         NOT NULL,
     creator_id      VARCHAR(36) NOT NULL,
     reason          TEXT        NOT NULL,
-    created_at      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at      DATETIME    NOT NULL                       DEFAULT CURRENT_TIMESTAMP,
+    status          ENUM ('SUBMITTED', 'ACCEPTED', 'REJECTED') DEFAULT 'SUBMITTED',
     PRIMARY KEY (id),
     INDEX IDX_BY_POST (tgt_metadata_id)
 )

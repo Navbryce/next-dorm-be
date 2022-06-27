@@ -1,17 +1,11 @@
 
 # next-dorm-be
-TBD
+Backend for [Nextdorm](https://github.com/Navbryce/next-dorm)
 
 # Stack
 - gin
 - planetscale
+- firebase (for auth and blob storage)
 
-# Running Migrations
-
-# TODO
-- Input validation for routes
-- Better error handling (prevent crashes)
-- Add roles to routes! (Check if admin)
-- Refactor routes and database!
-- Add community hierarchy?
-- Dicebear avatars
+# Deployment
+Deployed at fly.io
